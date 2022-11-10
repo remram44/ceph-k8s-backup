@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 CEPH_KEY_SECRET_NAME = os.environ.get('CEPH_KEY_SECRET_NAME', 'ceph-key')
 RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
 
+BACKUP_IMAGE = os.environ.get(
+    'BACKUP_IMAGE',
+    'registry.hsrn.nyu.edu/hsrn-projects/ceph-backup/restic-container:'
+    + '0.1.0-18-ge6487ef',
+)
+
 
 def render_date(dt):
     s = dt.isoformat()
@@ -323,9 +329,9 @@ def backup_rbd_fs(api, ceph, vol, now):
                     containers=[
                         k8s_client.V1Container(
                             name='backup',
-                            image='quay.io/remram44/restic',
+                            image=BACKUP_IMAGE,
                             args=[
-                                '/opt/restic',
+                                'restic',
                                 '-r', '$(URL)',
                                 '--host', '$(HOST)',
                                 '--exclude', 'lost+found',
