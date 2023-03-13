@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "ceph-backup"
+version = "0.1.0"
+description = "Backup system for Ceph data in Kubernetes"
+authors = ["Remi Rampin <remi@rampin.org>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+prometheus-client = "*"
+kubernetes = "*"
+
+[tool.poetry.scripts]
+ceph-backup = "ceph_backup.backup:main"
+ceph-backup-metrics = "ceph_backup.metrics:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,4 +1,4 @@
-This is a application used to make regular backups of Ceph data in a Kubernetes cluster.
+This is an application used to make regular backups of Ceph data in a Kubernetes cluster.
 
 It runs a container that periodically enumerates PersistentVolumeClaims on the cluster and backs them up using Restic.
 
