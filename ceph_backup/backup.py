@@ -35,6 +35,12 @@ def parse_date(s):
     return datetime.fromisoformat(s[:-1])
 
 
+def render_date(dt):
+    s = dt.isoformat()
+    assert len(s) >= 19 and s[10] == 'T'
+    return dt.isoformat()[:19] + 'Z'
+
+
 def format_env(**kwargs):
     result = []
     for k, v in kwargs.items():
@@ -108,7 +114,7 @@ def main():
 
     for vol in to_backup:
         if vol['mode'] == 'Filesystem':
-            backup_rbd_fs(api, ceph, vol)
+            backup_rbd_fs(api, ceph, vol, now)
         else:
             logger.warning("Unsupported volume mode %r", vol['mode'])
 
@@ -228,7 +234,7 @@ def build_list_to_backup(api, now):
     return to_backup
 
 
-def backup_rbd_fs(api, ceph, vol):
+def backup_rbd_fs(api, ceph, vol, now):
     logger.info(
         'Backing up: pv=%s, pvc=%s/%s, rbd=%s/%s, mode=%s, size=%s',
         vol['pv'],
@@ -237,6 +243,18 @@ def backup_rbd_fs(api, ceph, vol):
         vol['mode'],
         vol['size'] or 'unknown',
     )
+
+    corev1 = k8s_client.CoreV1Api(api)
+    batchv1 = k8s_client.BatchV1Api(api)
+
+    # Label the PV
+    corev1.patch_persistent_volume(vol['pv'], {
+        'metadata': {
+            'annotations': {
+                ANNOTATION_LAST_ATTEMPT: render_date(now),
+            },
+        },
+    })
 
     # Make a snapshot
     rbd_image = vol['rbd_pool'] + '/' + vol['rbd_name']
@@ -250,8 +268,6 @@ def backup_rbd_fs(api, ceph, vol):
     check_call(['rbd', 'clone', rbd_snapshot, rbd_backup_img])
 
     # Create a job to do the backup
-    corev1 = k8s_client.CoreV1Api(api)
-    batchv1 = k8s_client.BatchV1Api(api)
     labels = {
         METADATA_PREFIX + 'volume-type': 'rbd',
         METADATA_PREFIX + 'volume-mode': 'filesystem',
