@@ -125,8 +125,7 @@ def main():
     api = k8s_client.ApiClient()
 
     # Clean old jobs
-    # TODO: If jobs are completed, read their 'start-time' annotation, update the 'last-backup' annotation on PV
-    # TODO: Maybe clean cloned image and snapshot?
+    cleanup_jobs(api)
 
     # Back up volumes
     to_backup = build_list_to_backup(api, now)
@@ -250,6 +249,73 @@ def build_list_to_backup(api, now):
     to_backup = to_backup[:do_now]
 
     return to_backup
+
+
+def cleanup_jobs(api):
+    corev1 = k8s_client.CoreV1Api(api)
+    batchv1 = k8s_client.BatchV1Api(api)
+    jobs = batchv1.list_namespaced_job(
+        NAMESPACE,
+        label_selector=METADATA_PREFIX + 'volume-type=rbd',
+    ).items
+    for job in jobs:
+        if not job.status.completion_time:
+            continue
+
+        meta = job.metadata
+        pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
+        pvc_name = meta.labels[METADATA_PREFIX + 'pvc-name']
+        pv = meta.labels[METADATA_PREFIX + 'pv-name']
+
+        logger.info(
+            "Cleaning up job=%s pv=%s, pvc=%s/%s",
+            meta.name,
+            pv,
+            pvc_namespace,
+            pvc_name,
+        )
+
+        # Get start time
+        start_time = meta.annotations[METADATA_PREFIX + 'start-time']
+
+        # Annotate the PVC
+        try:
+            pvc = corev1.read_namespaced_persistent_volume_claim(
+                pvc_name,
+                pvc_namespace,
+            )
+        except k8s_client.ApiException as e:
+            if e.status != 404:
+                raise
+        else:
+            # Don't update if the PVC has a more recent time already
+            existing_time = pvc.metadata.annotations.get(
+                METADATA_PREFIX + 'last-backup'
+            )
+            if (
+                not existing_time
+                or parse_date(existing_time) < parse_date(start_time)
+            ):
+                corev1.patch_namespaced_persistent_volume_claim(
+                    pvc_name,
+                    pvc_namespace,
+                    {
+                        'metadata': {
+                            METADATA_PREFIX + 'last-backup': start_time,
+                        },
+                    },
+                )
+
+        # Clean the snapshot and cloned image
+        rbd_pool = meta.labels[METADATA_PREFIX + 'rbd-pool']
+        rbd_name = meta.labels[METADATA_PREFIX + 'rbd-name']
+        rbd_fq_backup_img = rbd_pool + '/' + 'backup-' + rbd_name
+        rbd_fq_snapshot = rbd_pool + '/' + rbd_name + '@backup'
+        if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
+            check_call(['rbd', 'rm', rbd_fq_backup_img])
+        if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
+            call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+            check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
 
 
 def backup_rbd_fs(api, ceph, vol, now):
