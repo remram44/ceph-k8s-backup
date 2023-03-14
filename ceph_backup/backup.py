@@ -124,8 +124,12 @@ def main():
 
     api = k8s_client.ApiClient()
 
-    to_backup = build_list_to_backup(api, now)
+    # Clean old jobs
+    # TODO: If jobs are completed, read their 'start-time' annotation, update the 'last-backup' annotation on PV
+    # TODO: Maybe clean cloned image and snapshot?
 
+    # Back up volumes
+    to_backup = build_list_to_backup(api, now)
     for vol in to_backup:
         if vol['mode'] == 'Filesystem':
             backup_rbd_fs(api, ceph, vol, now)
@@ -270,16 +274,25 @@ def backup_rbd_fs(api, ceph, vol, now):
         },
     })
 
+    rbd_fq_image = vol['rbd_pool'] + '/' + vol['rbd_name']
+    rbd_fq_snapshot = rbd_fq_image + '@backup'
+    rbd_backup_img = 'backup-' + vol['rbd_name']
+    rbd_fq_backup_img = vol['rbd_pool'] + '/' + rbd_backup_img
+
+    # Clean old snapshots and cloned images for this image
+    if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
+        check_call(['rbd', 'rm', rbd_fq_backup_img])
+    if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
+        call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+        check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+
     # Make a snapshot
-    rbd_image = vol['rbd_pool'] + '/' + vol['rbd_name']
-    rbd_snapshot = rbd_image + '@backup'
-    check_call(['rbd', 'snap', 'create', rbd_snapshot])
+    check_call(['rbd', 'snap', 'create', rbd_fq_snapshot])
 
     # Turn it into an image, so the filesystem can be fixed on mount
     # (if the image was in use when snapshotting, it will need repair)
-    rbd_backup_img = vol['rbd_pool'] + '/' + 'backup-' + vol['rbd_name']
-    check_call(['rbd', 'snap', 'protect', rbd_snapshot])
-    check_call(['rbd', 'clone', rbd_snapshot, rbd_backup_img])
+    check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
+    check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
 
     # Create a job to do the backup
     labels = {
@@ -295,6 +308,9 @@ def backup_rbd_fs(api, ceph, vol, now):
         metadata=k8s_client.V1ObjectMeta(
             generate_name='backup-rbd-fs-%s-' % vol['namespace'],
             labels=labels,
+            annotations={
+                METADATA_PREFIX + 'start-time': render_date(now),
+            },
         ),
         spec=k8s_client.V1JobSpec(
             active_deadline_seconds=12 * 3600,
@@ -341,7 +357,7 @@ def backup_rbd_fs(api, ceph, vol, now):
                             rbd=k8s_client.V1RBDVolumeSource(
                                 monitors=ceph['monitors'],
                                 pool=vol['rbd_pool'],
-                                image='backup-' + vol['rbd_name'],
+                                image=rbd_backup_img,
                                 fs_type=vol['csi']['fstype'],
                                 secret_ref=k8s_client.V1SecretReference(
                                     name=ceph['secret'],
@@ -355,7 +371,3 @@ def backup_rbd_fs(api, ceph, vol, now):
         ),
     ))
     logger.info("Created job %s", job.metadata.name)
-
-
-# TODO: Update last-backup annotation
-# TODO: Cleanup snapshots and cloned images
