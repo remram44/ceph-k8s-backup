@@ -299,6 +299,7 @@ def backup_rbd_fs(api, ceph, vol, now):
                                 '/opt/restic',
                                 '-r', '$(URL)',
                                 '--host', '$(HOST)',
+                                '--exclude', 'lost+found',
                                 'backup', '/data',
                             ],
                             env=format_env(
