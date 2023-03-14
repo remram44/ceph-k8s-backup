@@ -5,7 +5,8 @@ import kubernetes.config as k8s_config
 import logging
 import math
 import os
-from subprocess import check_call
+import shlex
+import subprocess
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,19 @@ def render_date(dt):
     s = dt.isoformat()
     assert len(s) >= 19 and s[10] == 'T'
     return dt.isoformat()[:19] + 'Z'
+
+
+def call(args):
+    logger.info("> %s", ' '.join(shlex.quote(a) for a in args))
+    retcode = subprocess.call(args, stdout=subprocess.DEVNULL)
+    logger.info("-> %d", retcode)
+    return retcode
+
+
+def check_call(args):
+    retcode = call(args)
+    if retcode != 0:
+        raise subprocess.CalledProcessError(retcode, args)
 
 
 def format_env(**kwargs):
