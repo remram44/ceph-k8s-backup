@@ -279,7 +279,7 @@ def backup_rbd_fs(api, ceph, vol, now):
                             ],
                             env=format_env(
                                 URL=('secret', 'restic', 'url'),
-                                HOST='rbd-fs-%s--%s' % (
+                                HOST='rbd-fs-%s-nspvc-%s' % (
                                     vol['namespace'],
                                     vol['name'],
                                 ),

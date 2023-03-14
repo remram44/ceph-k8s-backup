@@ -16,7 +16,10 @@ It supports RBD filesystems, RBD block devices, and CephFS volumes:
 
 # Where is it backed up
 
-The data backed up with Restic ends up in a single Restic repository. Each PersistentVolumeClaim appears as a different hostname with the format `k8s-<kubernetes-namespace>-nspvc-<pvc name>`.
+The data backed up with Restic ends up in a single Restic repository. Each PersistentVolumeClaim appears as a different hostname:
+
+* `rbd-fs-<kubernetes-namespace>-nspvc-<pvc name>` for RBD volumes in Filesystem mode
+* `rbd-block-<kubernetes-namespace>-nspvc-<pvc name>` for RBD volumes in Block mode (backed up as a single qcow2 file)
 
 # Configuration
 
@@ -35,9 +38,9 @@ Annotations on Kubernetes PersistentVolumeClaims (can be set by users):
 
 Annotations on Kubernetes PersistentVolumes:
 
-* `cephbackup.hpc.nyu.edu/backupa (true/false)` indicates that this PV should not be backed up
+* `cephbackup.hpc.nyu.edu/backup` (true/false) indicates that this PV should not be backed up
 
-In addition, an annotation `cephbackup.hpc.nyu.edu/last-backup` is set on the PV by this system to keep track of the data of the last backup.
+In addition, an annotation `cephbackup.hpc.nyu.edu/last-backup` is set on the PVC by this system show the date of the last backup.
 
 A volume is backed up if:
 
