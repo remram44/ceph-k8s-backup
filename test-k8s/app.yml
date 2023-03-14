@@ -13,3 +13,55 @@ type: Opaque
 stringData:
   url: 'rest:http://k8s-ceph:test@restic-server.restic.svc.cluster.local:8000/k8s-ceph'
   password: 'test'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-backup
+  namespace: ceph-backup
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ceph-backup
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["get", "watch", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ceph-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ceph-backup
+subjects:
+  - kind: ServiceAccount
+    name: ceph-backup
+    namespace: ceph-backup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ceph-backup
+  namespace: ceph-backup
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "watch", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ceph-backup
+  namespace: ceph-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-backup
+subjects:
+  - kind: ServiceAccount
+    name: ceph-backup

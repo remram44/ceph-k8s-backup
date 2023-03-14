@@ -1,0 +1,30 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-backup
+  namespace: ceph-backup
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: ceph-backup
+          image: ceph-backup:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CEPH_MONITORS
+              value: "10.32.250.28,10.33.80.6,10.33.64.36"
+            - name: CEPH_USER
+              value: test-backup
+            - name: CEPH_ARGS
+              value: "--conf /var/run/secrets/ceph/rbd.conf --keyring /var/run/secrets/ceph/rbd.conf --user $(CEPH_USER)"
+          volumeMounts:
+            - name: ceph
+              mountPath: /var/run/secrets/ceph
+      volumes:
+        - name: ceph
+          secret:
+            secretName: ceph
+      serviceAccountName: ceph-backup

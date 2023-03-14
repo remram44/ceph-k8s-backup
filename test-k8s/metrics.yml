@@ -1,0 +1,46 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ceph-backup-metrics
+  namespace: ceph-backup
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ceph-backup-metrics
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ceph-backup-metrics
+    spec:
+      containers:
+        - name: metrics
+          image: ceph-backup:latest
+          imagePullPolicy: IfNotPresent
+          args: [ceph-backup-metrics]
+          ports:
+            - containerPort: 8080
+              name: metrics
+              protocol: TCP
+      serviceAccountName: ceph-backup
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ceph-backup-metrics
+  namespace: ceph-backup
+spec:
+  type: ClusterIP
+  selector:
+    app: ceph-backup-metrics
+  ports:
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: metrics
