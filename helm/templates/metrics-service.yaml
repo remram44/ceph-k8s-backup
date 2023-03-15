@@ -1,0 +1,17 @@
+{{ if .Values.metrics.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ceph-backup.fullname" . }}-metrics
+  labels:
+    {{- include "ceph-backup.metrics.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+    - port: {{ .Values.metrics.service.port }}
+      targetPort: http-metrics
+      protocol: TCP
+      name: http-metrics
+  selector:
+    {{- include "ceph-backup.metrics.selectorLabels" . | nindent 4 }}
+{{- end }}

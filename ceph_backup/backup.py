@@ -15,6 +15,10 @@ from .metadata import METADATA_PREFIX, ANNOTATION_LAST_ATTEMPT, NAMESPACE, \
 logger = logging.getLogger(__name__)
 
 
+CEPH_SECRET_NAME = os.environ.get('CEPH_SECRET_NAME', 'ceph')
+RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
+
+
 def render_date(dt):
     s = dt.isoformat()
     assert len(s) >= 19 and s[10] == 'T'
@@ -82,7 +86,7 @@ def main():
             mon for mon in os.environ['CEPH_MONITORS'].split(',')
             if mon
         ],
-        'secret': 'ceph',
+        'secret': CEPH_SECRET_NAME,
         'user': os.environ['CEPH_USER'],
     }
 
@@ -278,13 +282,13 @@ def backup_rbd_fs(api, ceph, vol, now):
                                 'backup', '/data',
                             ],
                             env=format_env(
-                                URL=('secret', 'restic', 'url'),
+                                URL=('secret', RESTIC_SECRET_NAME, 'url'),
                                 HOST='rbd-fs-%s-nspvc-%s' % (
                                     vol['namespace'],
                                     vol['name'],
                                 ),
                                 RESTIC_PASSWORD=(
-                                    'secret', 'restic', 'password',
+                                    'secret', RESTIC_SECRET_NAME, 'password',
                                 ),
                             ),
                             volume_mounts=[

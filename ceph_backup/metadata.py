@@ -1,6 +1,7 @@
 from datetime import datetime
 import kubernetes.client as k8s_client
 import logging
+import os
 
 
 METADATA_PREFIX = 'cephbackup.hpc.nyu.edu/'
@@ -8,7 +9,7 @@ METADATA_PREFIX = 'cephbackup.hpc.nyu.edu/'
 ANNOTATION_ENABLED = METADATA_PREFIX + 'backup'
 ANNOTATION_LAST_ATTEMPT = METADATA_PREFIX + 'last-start'
 
-NAMESPACE = 'ceph-backup'
+NAMESPACE = os.environ.get('NAMESPACE', 'ceph-backup')
 
 
 logger = logging.getLogger(__name__)
