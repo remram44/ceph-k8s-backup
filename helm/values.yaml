@@ -16,7 +16,6 @@ fullnameOverride: ""
 # Example:
 #   stringData:
 #     user: test-backup
-#     key: KP1BWrhRO2eTwG/tDf24N8SH5GCS1A5eIRfeNQ==
 #     monitors: "192.168.61.11,192.168.61.12,192.168.61.13"
 #     rbd.conf: |
 #       [global]
@@ -25,6 +24,12 @@ fullnameOverride: ""
 #       [client.test-backup]
 #           key = KP1BWrhRO2eTwG/tDf24N8SH5GCS1A5eIRfeNQ==
 cephSecretName: ceph
+
+# Secret containing the Ceph 'key' for use by Kubernetes
+# Example:
+#   stringData:
+#     key: KP1BWrhRO2eTwG/tDf24N8SH5GCS1A5eIRfeNQ==
+cephKeySecretName: ceph-key
 
 # Secret containing 'url', the repository URL, and 'password', the repository password
 # Example:
