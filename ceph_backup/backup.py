@@ -91,6 +91,7 @@ def main():
     }
 
     api = k8s_client.ApiClient()
+    corev1 = k8s_client.CoreV1Api(api)
 
     # Clean old jobs
     cleanup_jobs(api)
@@ -102,6 +103,15 @@ def main():
             backup_rbd_fs(api, ceph, vol, now)
         else:
             logger.warning("Unsupported volume mode %r", vol['mode'])
+
+            # Annotate the PV anyway so we can keep going
+            corev1.patch_persistent_volume(vol['pv'], {
+                'metadata': {
+                    'annotations': {
+                        ANNOTATION_LAST_ATTEMPT: render_date(now),
+                    },
+                },
+            })
 
 
 def build_list_to_backup(api, now):
@@ -214,7 +224,7 @@ def backup_rbd_fs(api, ceph, vol, now):
     corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
 
-    # Label the PV
+    # Annotate the PV
     corev1.patch_persistent_volume(vol['pv'], {
         'metadata': {
             'annotations': {
