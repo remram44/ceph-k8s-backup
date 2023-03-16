@@ -85,11 +85,6 @@ def list_volumes_to_backup(api):
                     'cluster_id': pv.spec.csi.volume_attributes['clusterID'],
                 }
             }
-            if pv.spec.csi.node_stage_secret_ref:
-                vol['csi']['secret'] = (
-                    pv.spec.csi.node_stage_secret_ref.namespace,
-                    pv.spec.csi.node_stage_secret_ref.name,
-                )
             if pv.spec.csi.fs_type:
                 vol['csi']['fstype'] = pv.spec.csi.fs_type
             volumes.append(vol)
