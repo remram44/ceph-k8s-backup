@@ -60,7 +60,7 @@ class Collector(object):
             else:
                 due = (vol['last_backup'] - now).total_seconds() + 24 * 3600
                 due = max(0, due)
-                due = math.floor(due / 3600)
+                due = math.ceil(due / 3600)
                 due = min(24, due)
             data['due'][due] += 1
 
