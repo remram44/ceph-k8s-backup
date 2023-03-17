@@ -156,6 +156,8 @@ def cleanup_jobs(api):
     for job in jobs:
         if not job.status.completion_time:
             continue
+        if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
+            continue
 
         meta = job.metadata
         pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
@@ -213,6 +215,19 @@ def cleanup_jobs(api):
         if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
             call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
             check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+
+        # Annotate job
+        batchv1.patch_namespaced_job(
+            job.metadata.name,
+            job.metadata.namespace,
+            {
+                'metadata': {
+                    'annotations': {
+                        METADATA_PREFIX + 'cleaned-up': 'true',
+                    },
+                },
+            },
+        )
 
 
 def backup_rbd_fs(api, ceph, vol, now):
