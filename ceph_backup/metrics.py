@@ -36,7 +36,12 @@ class Collector(object):
         )
         volume_backup_due = HistogramMetricFamily(
             'volume_backups_due',
-            "Volume backups by due date (in hours)",
+            "Volumes to backup by due date (in hours)",
+            labels=['namespace'],
+        )
+        volume_backup_age = HistogramMetricFamily(
+            'volume_backup_age',
+            "Volumes to backup by last success age (in hours)",
             labels=['namespace'],
         )
         running_rbd_backup_jobs = GaugeMetricFamily(
@@ -50,7 +55,7 @@ class Collector(object):
             try:
                 data = namespaces[vol['namespace']]
             except KeyError:
-                data = {'volumes': 0, 'due': [0] * 25}
+                data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37}
                 namespaces[vol['namespace']] = data
 
             data['volumes'] += 1
@@ -64,8 +69,18 @@ class Collector(object):
                 due = min(24, due)
             data['due'][due] += 1
 
+            if vol['mode'] == 'Filesystem':  # TODO: Ignore Block for now
+                if vol['last_backup'] is None:
+                    age = 36
+                else:
+                    age = (now - vol['last_backup']).total_seconds()
+                    age = math.floor(age / 3600)
+                    age = min(36, age)
+                data['age'][age] += 1
+
         for namespace, data in namespaces.items():
             volumes_backed_up.add_metric([namespace], data['volumes'])
+
             sum_value = 0
             buckets = []
             for due, value in enumerate(data['due'][:24]):
@@ -74,6 +89,15 @@ class Collector(object):
             buckets.append(('+Inf', data['due'][24]))
             sum_value += data['due'][24]
             volume_backup_due.add_metric([namespace], buckets, sum_value)
+
+            sum_value = 0
+            buckets = []
+            for age, value in enumerate(data['age'][:36]):
+                buckets.append((str(age), value))
+                sum_value += value
+            buckets.append(('+Inf', data['age'][36]))
+            sum_value += data['age'][36]
+            volume_backup_age.add_metric([namespace], buckets, sum_value)
 
         running_jobs = {}
         for job in jobs:
@@ -85,7 +109,12 @@ class Collector(object):
         for namespace, value in running_jobs.items():
             running_rbd_backup_jobs.add_metric([namespace], value)
 
-        return [volumes_backed_up, volume_backup_due, running_rbd_backup_jobs]
+        return [
+            volumes_backed_up,
+            volume_backup_due,
+            volume_backup_age,
+            running_rbd_backup_jobs,
+        ]
 
 
 class SilentHandler(WSGIRequestHandler):

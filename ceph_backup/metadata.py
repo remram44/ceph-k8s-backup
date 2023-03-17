@@ -59,8 +59,12 @@ def list_volumes_to_backup(api):
     claims = {}
     for pvc in list_persistent_volume_claims(api):
         annotations = pvc.metadata.annotations or {}
+        last_backup = annotations.get(METADATA_PREFIX + 'last-backup')
+        if last_backup:
+            last_backup = parse_date(last_backup)
         claims[pvc.spec.volume_name] = {
             'backup': parse_bool(annotations.get(ANNOTATION_ENABLED)),
+            'last_backup': last_backup,
             'namespace': pvc.metadata.namespace,
             'name': pvc.metadata.name,
         }
@@ -119,6 +123,7 @@ def list_volumes_to_backup(api):
             'mode': pv['mode'],
             'namespace': claim['namespace'],
             'name': claim['name'],
+            'last_backup': claim['last_backup'],
             'last_attempt': pv['last_attempt'],
             'rbd_pool': pv['rbd_pool'],
             'rbd_name': pv['rbd_name'],
