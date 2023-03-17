@@ -77,8 +77,9 @@ class Collector(object):
 
         running_jobs = {}
         for job in jobs:
-            if not job.status.completion_time:
-                ns = job.metadata.annotations[METADATA_PREFIX + 'start-time']
+            if job.status.active:
+                labels = job.metadata.labels
+                ns = labels[METADATA_PREFIX + 'pvc-namespace']
                 running_jobs[ns] = running_jobs.get(ns, 0) + 1
 
         for namespace, value in running_jobs.items():
