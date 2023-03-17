@@ -194,7 +194,9 @@ def cleanup_jobs(api):
                     pvc_namespace,
                     {
                         'metadata': {
-                            METADATA_PREFIX + 'last-backup': start_time,
+                            'annotations': {
+                                METADATA_PREFIX + 'last-backup': start_time,
+                            },
                         },
                     },
                 )
