@@ -117,6 +117,8 @@ def main():
 def build_list_to_backup(api, now):
     to_backup = list_volumes_to_backup(api)
 
+    total_volumes = len(to_backup)
+
     # Select based on last attempt
     limit = 24 * 3600 - 30 * 60  # 23:30:00
     to_backup = [
@@ -135,9 +137,9 @@ def build_list_to_backup(api, now):
     )
 
     # Instead of doing all the backups that are due right now,
-    # we do 1/24th of the backups that are due
+    # we do 1/24th of the total backups
     # This is to spread out the backup times if they all coincide
-    do_now = math.ceil(len(to_backup) / 24)
+    do_now = min(math.ceil(total_volumes / 24), len(to_backup))
     logger.info("%d volumes to backup, doing %d now", len(to_backup), do_now)
     to_backup = to_backup[:do_now]
 
