@@ -69,14 +69,14 @@ def list_volumes_to_backup(api):
     volumes = []
     for pv in list_persistent_volumes(api):
         annotations = pv.metadata.annotations or {}
-        last_backup = annotations.get(ANNOTATION_LAST_ATTEMPT)
-        if last_backup:
-            last_backup = parse_date(last_backup)
+        last_attempt = annotations.get(ANNOTATION_LAST_ATTEMPT)
+        if last_attempt:
+            last_attempt = parse_date(last_attempt)
         if pv.spec.csi and pv.spec.csi.driver == 'rbd.csi.ceph.com':
             vol = {
                 'name': pv.metadata.name,
                 'backup': parse_bool(annotations.get(ANNOTATION_ENABLED)),
-                'last_backup': last_backup,
+                'last_attempt': last_attempt,
                 'mode': pv.spec.volume_mode,
                 'size': pv.spec.capacity.get('storage'),
                 'rbd_pool': pv.spec.csi.volume_attributes['pool'],
@@ -119,7 +119,7 @@ def list_volumes_to_backup(api):
             'mode': pv['mode'],
             'namespace': claim['namespace'],
             'name': claim['name'],
-            'last_backup': pv['last_backup'],
+            'last_attempt': pv['last_attempt'],
             'rbd_pool': pv['rbd_pool'],
             'rbd_name': pv['rbd_name'],
             'csi': pv['csi'],

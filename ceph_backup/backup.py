@@ -124,8 +124,8 @@ def build_list_to_backup(api, now):
     to_backup = [
         vol for vol in to_backup
         if (
-            vol['last_backup'] is None
-            or (now - vol['last_backup']).total_seconds() > limit
+            vol['last_attempt'] is None
+            or (now - vol['last_attempt']).total_seconds() > limit
         )
     ]
 
@@ -133,7 +133,7 @@ def build_list_to_backup(api, now):
     time_zero = datetime(1970, 1, 1)
     to_backup = sorted(
         to_backup,
-        key=lambda vol: vol['last_backup'] or time_zero,
+        key=lambda vol: vol['last_attempt'] or time_zero,
     )
 
     # Instead of doing all the backups that are due right now,

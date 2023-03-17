@@ -55,10 +55,10 @@ class Collector(object):
 
             data['volumes'] += 1
 
-            if vol['last_backup'] is None:
+            if vol['last_attempt'] is None:
                 due = 0
             else:
-                due = (vol['last_backup'] - now).total_seconds() + 24 * 3600
+                due = (vol['last_attempt'] - now).total_seconds() + 24 * 3600
                 due = max(0, due)
                 due = math.ceil(due / 3600)
                 due = min(24, due)
