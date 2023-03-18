@@ -84,19 +84,19 @@ class Collector(object):
             sum_value = 0
             buckets = []
             for due, value in enumerate(data['due'][:24]):
-                buckets.append((str(due), value))
                 sum_value += value
-            buckets.append(('+Inf', data['due'][24]))
+                buckets.append((str(due), sum_value))
             sum_value += data['due'][24]
+            buckets.append(('+Inf', sum_value))
             volume_backup_due.add_metric([namespace], buckets, sum_value)
 
             sum_value = 0
             buckets = []
             for age, value in enumerate(data['age'][:36]):
-                buckets.append((str(age), value))
                 sum_value += value
-            buckets.append(('+Inf', data['age'][36]))
+                buckets.append((str(age), sum_value))
             sum_value += data['age'][36]
+            buckets.append(('+Inf', sum_value))
             volume_backup_age.add_metric([namespace], buckets, sum_value)
 
         running_jobs = {}
