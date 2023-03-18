@@ -7,7 +7,7 @@ import math
 from prometheus_client import REGISTRY, make_wsgi_app
 from prometheus_client.exposition import ThreadingWSGIServer
 from prometheus_client.metrics_core import GaugeMetricFamily, \
-    HistogramMetricFamily
+    GaugeHistogramMetricFamily
 from wsgiref.simple_server import make_server, WSGIRequestHandler
 
 from .metadata import METADATA_PREFIX, NAMESPACE, list_volumes_to_backup
@@ -34,12 +34,12 @@ class Collector(object):
             "Volumes that have backups enabled",
             labels=['namespace'],
         )
-        volume_backup_due = HistogramMetricFamily(
+        volume_backup_due = GaugeHistogramMetricFamily(
             'volume_backups_due',
             "Volumes to backup by due date (in hours)",
             labels=['namespace'],
         )
-        volume_backup_age = HistogramMetricFamily(
+        volume_backup_age = GaugeHistogramMetricFamily(
             'volume_backup_age',
             "Volumes to backup by last success age (in hours)",
             labels=['namespace'],
