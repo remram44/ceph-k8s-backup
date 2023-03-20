@@ -99,19 +99,28 @@ def main():
     # Back up volumes
     to_backup = build_list_to_backup(api, now)
     for vol in to_backup:
+        logger.info(
+            'Backing up: pv=%s, pvc=%s/%s, rbd=%s/%s, mode=%s, size=%s',
+            vol['pv'],
+            vol['namespace'], vol['name'],
+            vol['rbd_pool'], vol['rbd_name'],
+            vol['mode'],
+            vol['size'] or 'unknown',
+        )
+
+        # Annotate the PV
+        corev1.patch_persistent_volume(vol['pv'], {
+            'metadata': {
+                'annotations': {
+                    ANNOTATION_LAST_ATTEMPT: render_date(now),
+                },
+            },
+        })
+
         if vol['mode'] == 'Filesystem':
             backup_rbd_fs(api, ceph, vol, now)
         else:
-            logger.warning("Unsupported volume mode %r", vol['mode'])
-
-            # Annotate the PV anyway so we can keep going
-            corev1.patch_persistent_volume(vol['pv'], {
-                'metadata': {
-                    'annotations': {
-                        ANNOTATION_LAST_ATTEMPT: render_date(now),
-                    },
-                },
-            })
+            backup_rbd_block(api, ceph, vol, now)
 
 
 def build_list_to_backup(api, now):
@@ -231,26 +240,7 @@ def cleanup_jobs(api):
 
 
 def backup_rbd_fs(api, ceph, vol, now):
-    logger.info(
-        'Backing up: pv=%s, pvc=%s/%s, rbd=%s/%s, mode=%s, size=%s',
-        vol['pv'],
-        vol['namespace'], vol['name'],
-        vol['rbd_pool'], vol['rbd_name'],
-        vol['mode'],
-        vol['size'] or 'unknown',
-    )
-
-    corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
-
-    # Annotate the PV
-    corev1.patch_persistent_volume(vol['pv'], {
-        'metadata': {
-            'annotations': {
-                ANNOTATION_LAST_ATTEMPT: render_date(now),
-            },
-        },
-    })
 
     rbd_fq_image = vol['rbd_pool'] + '/' + vol['rbd_name']
     rbd_fq_snapshot = rbd_fq_image + '@backup'
@@ -349,3 +339,7 @@ def backup_rbd_fs(api, ceph, vol, now):
         ),
     ))
     logger.info("Created job %s", job.metadata.name)
+
+
+def backup_rbd_block(api, ceph, vol, now):
+    logger.warning("Unsupported volume mode %r", vol['mode'])
