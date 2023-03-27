@@ -94,11 +94,24 @@ def main():
     corev1 = k8s_client.CoreV1Api(api)
 
     # Clean old jobs
-    cleanup_jobs(api)
+    currently_backing_up = cleanup_jobs(api)
 
     # Back up volumes
     to_backup = build_list_to_backup(api, now)
     for vol in to_backup:
+        if vol['pv'] in currently_backing_up:
+            logger.warning(
+                "Skipping backup, job exists: pv=%s, pvc=%s/%s, rbd=%s/%s, "
+                + "mode=%s, size=%s, job=%s",
+                vol['pv'],
+                vol['namespace'], vol['name'],
+                vol['rbd_pool'], vol['rbd_name'],
+                vol['mode'],
+                vol['size'] or 'unknown',
+                currently_backing_up[vol['pv']],
+            )
+            continue
+
         logger.info(
             'Backing up: pv=%s, pvc=%s/%s, rbd=%s/%s, mode=%s, size=%s',
             vol['pv'],
@@ -156,6 +169,8 @@ def build_list_to_backup(api, now):
 
 
 def cleanup_jobs(api):
+    currently_backing_up = {}
+
     corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
     jobs = batchv1.list_namespaced_job(
@@ -163,15 +178,21 @@ def cleanup_jobs(api):
         label_selector=METADATA_PREFIX + 'volume-type=rbd',
     ).items
     for job in jobs:
-        if not job.status.completion_time:
-            continue
-        if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
-            continue
-
         meta = job.metadata
         pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
         pvc_name = meta.labels[METADATA_PREFIX + 'pvc-name']
         pv = meta.labels[METADATA_PREFIX + 'pv-name']
+
+        if not job.status.completion_time:
+            if not any(
+                condition.type == 'Failed' and condition.status is True
+                for condition in job.status.conditions
+            ):
+                # Not completed and not failed: don't start another backup
+                currently_backing_up[pv] = job.metadata.name
+            continue
+        if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
+            continue
 
         logger.info(
             "Cleaning up job=%s pv=%s, pvc=%s/%s",
@@ -237,6 +258,8 @@ def cleanup_jobs(api):
                 },
             },
         )
+
+    return currently_backing_up
 
 
 def backup_rbd_fs(api, ceph, vol, now):
