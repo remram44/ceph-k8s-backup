@@ -69,14 +69,13 @@ class Collector(object):
                 due = min(24, due)
             data['due'][due] += 1
 
-            if vol['mode'] == 'Filesystem':  # TODO: Ignore Block for now
-                if vol['last_backup'] is None:
-                    age = 36
-                else:
-                    age = (now - vol['last_backup']).total_seconds()
-                    age = math.floor(age / 3600)
-                    age = min(36, age)
-                data['age'][age] += 1
+            if vol['last_backup'] is None:
+                age = 36
+            else:
+                age = (now - vol['last_backup']).total_seconds()
+                age = math.floor(age / 3600)
+                age = min(36, age)
+            data['age'][age] += 1
 
         for namespace, data in namespaces.items():
             volumes_backed_up.add_metric([namespace], data['volumes'])
