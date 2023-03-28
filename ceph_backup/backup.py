@@ -15,13 +15,14 @@ from .metadata import METADATA_PREFIX, ANNOTATION_LAST_ATTEMPT, NAMESPACE, \
 logger = logging.getLogger(__name__)
 
 
+CEPH_SECRET_NAME = os.environ.get('CEPH_SECRET_NAME', 'ceph')
 CEPH_KEY_SECRET_NAME = os.environ.get('CEPH_KEY_SECRET_NAME', 'ceph-key')
 RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
 
 BACKUP_IMAGE = os.environ.get(
     'BACKUP_IMAGE',
     'registry.hsrn.nyu.edu/hsrn-projects/ceph-backup/restic-container:'
-    + '0.1.0-18-ge6487ef',
+    + '0.1.0-22-g9faa3c1',
 )
 
 
@@ -271,17 +272,13 @@ def cleanup_jobs(api):
             call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
             check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
 
-        # Remove the PV, PVC, and CM if any
+        # Remove the PV and PVC if any
         pv = meta.labels[METADATA_PREFIX + 'pv-name']
         label_selector = METADATA_PREFIX + 'pv-name=%s' % pv
         corev1.delete_collection_persistent_volume(
             label_selector=label_selector,
         )
         corev1.delete_collection_namespaced_persistent_volume_claim(
-            NAMESPACE,
-            label_selector=label_selector,
-        )
-        corev1.delete_collection_namespaced_config_map(
             NAMESPACE,
             label_selector=label_selector,
         )
@@ -427,11 +424,6 @@ def backup_rbd_block(api, ceph, vol, now):
     check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
     check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
 
-    # Get layout
-    layout_json = check_output([
-        'rbd', 'diff', '--whole-object', '--format=json', rbd_fq_image,
-    ]).decode('utf-8')
-
     labels = {
         METADATA_PREFIX + 'volume-type': 'rbd',
         METADATA_PREFIX + 'volume-mode': 'block',
@@ -489,22 +481,11 @@ def backup_rbd_block(api, ceph, vol, now):
     )
     logger.info("Created PersistentVolumeClaim %s", pvc.metadata.name)
 
-    # Create a configmap to store the layout
-    cm = corev1.create_namespaced_config_map(
-        NAMESPACE,
-        k8s_client.V1ConfigMap(
-            metadata=k8s_client.V1ObjectMeta(
-                name='backup-rbd-block-%s' % vol['pv'],
-                labels=labels,
-            ),
-            data={'layout.json': layout_json},
-        ),
-    )
-    logger.info("Created ConfigMap %s", cm.metadata.name)
-
     # Create a job to do the backup
     script = (
-        'streaming-qcow2-writer /disk /layout/layout.json'
+        'rbd diff --whole-object --format=json ' + rbd_fq_image
+        + ' > /tmp/layout.json'
+        + ' && streaming-qcow2-writer /disk /tmp/layout.json'
         + ' | restic'
         + ' -r $(URL)'
         + ' --host $(HOST)'
@@ -538,14 +519,21 @@ def backup_rbd_block(api, ceph, vol, now):
                                     vol['namespace'],
                                     vol['name'],
                                 ),
+                                CEPH_USER=ceph['user'],
+                                CEPH_ARGS=(
+                                    '--conf /var/run/secrets/ceph/rbd.conf'
+                                    + ' --keyring'
+                                    + ' /var/run/secrets/ceph/rbd.conf'
+                                    + ' --user $(CEPH_USER)'
+                                ),
                                 RESTIC_PASSWORD=(
                                     'secret', RESTIC_SECRET_NAME, 'password',
                                 ),
                             ),
                             volume_mounts=[
                                 k8s_client.V1VolumeMount(
-                                    mount_path='/layout',
-                                    name='layout',
+                                    mount_path='/var/run/secrets/ceph',
+                                    name='ceph',
                                     read_only=True,
                                 ),
                             ],
@@ -567,9 +555,9 @@ def backup_rbd_block(api, ceph, vol, now):
                             ),
                         ),
                         k8s_client.V1Volume(
-                            name='layout',
-                            config_map=k8s_client.V1ConfigMapVolumeSource(
-                                name=cm.metadata.name,
+                            name='ceph',
+                            secret=k8s_client.V1SecretVolumeSource(
+                                secret_name=CEPH_SECRET_NAME,
                             ),
                         ),
                     ],
