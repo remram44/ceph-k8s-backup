@@ -52,7 +52,7 @@ spec:
                       key: user
                 - name: CEPH_ARGS
                   value: "--conf /var/run/secrets/ceph/rbd.conf --keyring /var/run/secrets/ceph/rbd.conf --user $(CEPH_USER)"
-                - name: CEPH_SECRET_NAME
+                - name: CEPH_KEY_SECRET_NAME
                   value: {{ .Values.cephKeySecretName | quote }}
                 - name: RESTIC_SECRET_NAME
                   value: {{ .Values.resticSecretName | quote }}

@@ -15,7 +15,7 @@ from .metadata import METADATA_PREFIX, ANNOTATION_LAST_ATTEMPT, NAMESPACE, \
 logger = logging.getLogger(__name__)
 
 
-CEPH_SECRET_NAME = os.environ.get('CEPH_SECRET_NAME', 'ceph')
+CEPH_KEY_SECRET_NAME = os.environ.get('CEPH_KEY_SECRET_NAME', 'ceph-key')
 RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
 
 
@@ -86,7 +86,7 @@ def main():
             mon for mon in os.environ['CEPH_MONITORS'].split(',')
             if mon
         ],
-        'secret': CEPH_SECRET_NAME,
+        'secret': CEPH_KEY_SECRET_NAME,
         'user': os.environ['CEPH_USER'],
     }
 
