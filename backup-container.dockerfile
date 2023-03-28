@@ -16,7 +16,7 @@ RUN curl -Lo /tmp/streaming-qcow2-writer_linux_amd64.bz2 https://github.com/remr
 
 FROM ubuntu:22.04
 RUN apt-get update -yy && \
-    apt-get install -yy curl ca-certificates && \
+    apt-get install -yy curl ca-certificates ceph-common && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=download /restic /usr/local/bin/restic
