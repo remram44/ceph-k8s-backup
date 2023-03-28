@@ -183,14 +183,22 @@ def cleanup_jobs(api):
         pvc_name = meta.labels[METADATA_PREFIX + 'pvc-name']
         pv = meta.labels[METADATA_PREFIX + 'pv-name']
 
-        if not job.status.completion_time:
-            if not any(
-                condition.type == 'Failed' and condition.status is True
-                for condition in job.status.conditions
-            ):
-                # Not completed and not failed: don't start another backup
-                currently_backing_up[pv] = job.metadata.name
+        completed = False
+        if job.status.completion_time:
+            completed = True
+        if any(
+            condition.type == 'Failed' and condition.status is True
+            for condition in job.status.conditions or ()
+        ):
+            completed = True
+
+        if not completed:
+            # Don't start another backup before this job has finished
+            currently_backing_up[pv] = job.metadata.name
+
+            # Don't clean up
             continue
+
         if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
             continue
 
