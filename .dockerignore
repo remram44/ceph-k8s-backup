@@ -1,0 +1,41 @@
+# Git
+**/.git
+**/.gitignore
+
+# Python
+**/*.py[co]
+
+# Packages
+**/*.egg
+**/*.egg-info
+dist
+**/build
+
+# Unit test / coverage reports
+**/.coverage
+**/.tox
+**/nosetests.xml
+
+# Eclipse PyDev
+**/.project
+**/.pydevproject
+
+# PyCharm
+**/.idea
+
+# Vi
+**/.*.swp
+
+# Emacs
+**/#*#
+
+# OS files
+**/.DS_Store
+**/desktop.ini
+
+# Archives
+**/*.tar
+**/*.tar.gz
+**/*.tar.bz2
+**/*.zip
+**/*.whl
