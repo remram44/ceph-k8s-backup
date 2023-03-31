@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ceph-backup"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backup system for Ceph data in Kubernetes"
 authors = ["Remi Rampin <remi@rampin.org>"]
 license = "MIT"
