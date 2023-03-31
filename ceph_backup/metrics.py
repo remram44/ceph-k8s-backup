@@ -44,9 +44,14 @@ class Collector(object):
             "Volumes to backup by last success age (in hours)",
             labels=['namespace'],
         )
-        running_rbd_backup_jobs = GaugeMetricFamily(
+        running_backup_jobs = GaugeMetricFamily(
             'running_backup_jobs',
             "Number of backup jobs running now",
+            labels=['namespace'],
+        )
+        failed_backup_jobs = GaugeMetricFamily(
+            'failed_backup_jobs',
+            "Number of backup jobs in failed status",
             labels=['namespace'],
         )
 
@@ -99,20 +104,30 @@ class Collector(object):
             volume_backup_age.add_metric([namespace], buckets, sum_value)
 
         running_jobs = {}
+        failed_jobs = {}
         for job in jobs:
+            labels = job.metadata.labels
+            ns = labels[METADATA_PREFIX + 'pvc-namespace']
             if job.status.active:
-                labels = job.metadata.labels
-                ns = labels[METADATA_PREFIX + 'pvc-namespace']
                 running_jobs[ns] = running_jobs.get(ns, 0) + 1
+            elif any(
+                condition.type == 'Failed' and condition.status is True
+                for condition in job.status.conditions or ()
+            ):
+                failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
 
         for namespace, value in running_jobs.items():
-            running_rbd_backup_jobs.add_metric([namespace], value)
+            running_backup_jobs.add_metric([namespace], value)
+
+        for namespace, value in failed_jobs.items():
+            failed_backup_jobs.add_metric([namespace], value)
 
         return [
             volumes_backed_up,
             volume_backup_due,
             volume_backup_age,
-            running_rbd_backup_jobs,
+            running_backup_jobs,
+            failed_backup_jobs,
         ]
 
 
