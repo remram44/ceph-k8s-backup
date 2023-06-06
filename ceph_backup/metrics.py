@@ -29,6 +29,11 @@ class Collector(object):
                 label_selector=METADATA_PREFIX + 'volume-type=rbd',
             ).items
 
+            crons = batchv1.list_namespaced_job(
+                NAMESPACE,
+                label_selector='app.kubernetes.io/component=scheduler',
+            ).items
+
         volumes_backed_up = GaugeMetricFamily(
             'volumes_backed_up',
             "Volumes that have backups enabled",
@@ -53,6 +58,10 @@ class Collector(object):
             'failed_backup_jobs',
             "Number of backup jobs in failed status",
             labels=['namespace'],
+        )
+        failed_backup_crons = GaugeMetricFamily(
+            'failed_backup_crons',
+            "Number of cronjob instances in failed status",
         )
 
         namespaces = {}
@@ -111,7 +120,8 @@ class Collector(object):
             if job.status.active:
                 running_jobs[ns] = running_jobs.get(ns, 0) + 1
             elif any(
-                condition.type == 'Failed' and condition.status == "true"
+                condition.type.lower() == 'failed'
+                and condition.status.lower() == "true"
                 for condition in job.status.conditions or ()
             ):
                 failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
@@ -122,12 +132,24 @@ class Collector(object):
         for namespace, value in failed_jobs.items():
             failed_backup_jobs.add_metric([namespace], value)
 
+        failed_crons = 0
+        for cron in crons:
+            if any(
+                condition.type.lower() == 'failed'
+                and condition.status.lower() == "true"
+                for condition in cron.status.conditions or ()
+            ):
+                failed_crons += 1
+
+        failed_backup_crons.add_metric([], failed_crons)
+
         return [
             volumes_backed_up,
             volume_backup_due,
             volume_backup_age,
             running_backup_jobs,
             failed_backup_jobs,
+            failed_backup_crons,
         ]
 
 
