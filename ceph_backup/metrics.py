@@ -111,7 +111,7 @@ class Collector(object):
             if job.status.active:
                 running_jobs[ns] = running_jobs.get(ns, 0) + 1
             elif any(
-                condition.type == 'Failed' and condition.status is True
+                condition.type == 'Failed' and condition.status == "true"
                 for condition in job.status.conditions or ()
             ):
                 failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
