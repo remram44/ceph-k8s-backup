@@ -297,6 +297,9 @@ def cleanup_jobs(api):
                         METADATA_PREFIX + 'cleaned-up': 'true',
                     },
                 },
+                'spec': {
+                    'ttlSecondsAfterFinished': 22 * 3600,
+                },
             },
         )
 
@@ -346,7 +349,6 @@ def backup_rbd_fs(api, ceph, vol, now):
         ),
         spec=k8s_client.V1JobSpec(
             active_deadline_seconds=12 * 3600,
-            ttl_seconds_after_finished=23 * 3600,
             template=k8s_client.V1PodTemplateSpec(
                 metadata=k8s_client.V1ObjectMeta(
                     labels=labels,
@@ -503,7 +505,6 @@ def backup_rbd_block(api, ceph, vol, now):
         ),
         spec=k8s_client.V1JobSpec(
             active_deadline_seconds=12 * 3600,
-            ttl_seconds_after_finished=23 * 3600,
             template=k8s_client.V1PodTemplateSpec(
                 metadata=k8s_client.V1ObjectMeta(
                     labels=labels,
