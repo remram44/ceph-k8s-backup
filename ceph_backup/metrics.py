@@ -16,7 +16,40 @@ from .metadata import METADATA_PREFIX, NAMESPACE, list_volumes_to_backup
 logger = logging.getLogger(__name__)
 
 
+def print_table(log, table, header=None):
+    # Measure fields
+    table_iter = iter(table)
+    if header:
+        first_row = header
+    else:
+        try:
+            first_row = next(table_iter)
+        except StopIteration:
+            return
+    fields = [len(col) for col in first_row]
+    for row in table_iter:
+        if len(row) != len(fields):
+            raise ValueError("Inconsistent number of columns in table")
+        for col in range(len(row)):
+            fields[col] = max(fields[col], len(row[col]))
+
+    # Print table
+    def print_row(row):
+        line = []
+        for value, size in zip(row, fields):
+            line.append('{0: <{1}}'.format(value, size))
+        log('  '.join(line))
+
+    if header:
+        print_row(header)
+    for row in table:
+        print_row(row)
+
+
 class Collector(object):
+    def __init__(self, *, show_table=False):
+        self.show_table = show_table
+
     def collect(self):
         now = datetime.utcnow()
 
@@ -114,17 +147,48 @@ class Collector(object):
 
         running_jobs = {}
         failed_jobs = {}
+        backup_info = {}
         for job in jobs:
             labels = job.metadata.labels
             ns = labels[METADATA_PREFIX + 'pvc-namespace']
+            pvc = labels[METADATA_PREFIX + 'pvc-name']
             if job.status.active:
                 running_jobs[ns] = running_jobs.get(ns, 0) + 1
+                backup_info.setdefault((ns, pvc), []).append(
+                    'active ' + job.metadata.name,
+                )
             elif any(
                 condition.type.lower() == 'failed'
                 and condition.status.lower() == "true"
                 for condition in job.status.conditions or ()
             ):
                 failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
+                backup_info.setdefault((ns, pvc), []).append(
+                    'failed ' + job.metadata.name,
+                )
+            else:
+                backup_info.setdefault((ns, pvc), []).append(
+                    'done ' + job.metadata.name,
+                )
+
+        if self.show_table:
+            table = []
+            for vol in to_backup:
+                info = backup_info.get((vol['namespace'], vol['name']), ())
+                table.append((
+                    vol['namespace'],
+                    vol['name'],
+                    vol['last_attempt'].isoformat()
+                    if vol['last_attempt'] else 'none',
+                    vol['last_backup'].isoformat()
+                    if vol['last_backup'] else 'none',
+                    ', '.join(info),
+                ))
+            print_table(
+                logger.info,
+                table,
+                ('NAMESPACE', 'PVC', 'LAST ATTEMPT', 'LAST BACKUP', 'JOBS'),
+            )
 
         for namespace, value in running_jobs.items():
             running_backup_jobs.add_metric([namespace], value)
@@ -171,6 +235,7 @@ def main():
         description="Expose metrics from ceph-backup operations",
     )
     parser.add_argument('--kubeconfig', nargs=1)
+    parser.add_argument('--table', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.kubeconfig:
@@ -180,7 +245,7 @@ def main():
         logger.info("Using in-cluster config")
         k8s_config.load_incluster_config()
 
-    REGISTRY.register(Collector())
+    REGISTRY.register(Collector(show_table=args.table))
 
     httpd = make_server(
         '0.0.0.0', 8080,
