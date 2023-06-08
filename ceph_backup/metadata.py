@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import kubernetes.client as k8s_client
 import logging
 import os
@@ -76,6 +76,15 @@ def list_volumes_to_backup(api):
         last_attempt = annotations.get(ANNOTATION_LAST_ATTEMPT)
         if last_attempt:
             last_attempt = parse_date(last_attempt)
+        else:
+            # Don't backup a volume for 6 hours
+            last_attempt = pv.metadata.creation_timestamp - timedelta(hours=6)
+            if last_attempt.tzinfo is None:
+                pass
+            elif last_attempt.tzinfo.utcoffset(last_attempt) == timedelta(0):
+                last_attempt = last_attempt.replace(tzinfo=None)
+            else:
+                raise AssertionError("Non-UTC creationTimestamp")
         if pv.spec.csi and pv.spec.csi.driver == 'rbd.csi.ceph.com':
             vol = {
                 'name': pv.metadata.name,
