@@ -46,175 +46,176 @@ def print_table(log, table, header=None):
         print_row(row)
 
 
-class Collector(object):
-    def __init__(self, *, show_table=False):
-        self.show_table = show_table
+def collect(show_table=False):
+    now = datetime.utcnow()
 
-    def collect(self):
-        now = datetime.utcnow()
+    with k8s_client.ApiClient() as api:
+        to_backup = list_volumes_to_backup(api)
 
-        with k8s_client.ApiClient() as api:
-            to_backup = list_volumes_to_backup(api)
+        batchv1 = k8s_client.BatchV1Api(api)
+        jobs = batchv1.list_namespaced_job(
+            NAMESPACE,
+            label_selector=METADATA_PREFIX + 'volume-type=rbd',
+        ).items
 
-            batchv1 = k8s_client.BatchV1Api(api)
-            jobs = batchv1.list_namespaced_job(
-                NAMESPACE,
-                label_selector=METADATA_PREFIX + 'volume-type=rbd',
-            ).items
+        crons = batchv1.list_namespaced_job(
+            NAMESPACE,
+            label_selector='app.kubernetes.io/component=scheduler',
+        ).items
 
-            crons = batchv1.list_namespaced_job(
-                NAMESPACE,
-                label_selector='app.kubernetes.io/component=scheduler',
-            ).items
+    volumes_backed_up = GaugeMetricFamily(
+        'volumes_backed_up',
+        "Volumes that have backups enabled",
+        labels=['namespace'],
+    )
+    volume_backup_due = GaugeHistogramMetricFamily(
+        'volume_backups_due',
+        "Volumes to backup by due date (in hours)",
+        labels=['namespace'],
+    )
+    volume_backup_age = GaugeHistogramMetricFamily(
+        'volume_backup_age',
+        "Volumes to backup by last success age (in hours)",
+        labels=['namespace'],
+    )
+    running_backup_jobs = GaugeMetricFamily(
+        'running_backup_jobs',
+        "Number of backup jobs running now",
+        labels=['namespace'],
+    )
+    failed_backup_jobs = GaugeMetricFamily(
+        'failed_backup_jobs',
+        "Number of backup jobs in failed status",
+        labels=['namespace'],
+    )
+    failed_backup_crons = GaugeMetricFamily(
+        'failed_backup_crons',
+        "Number of cronjob instances in failed status",
+    )
 
-        volumes_backed_up = GaugeMetricFamily(
-            'volumes_backed_up',
-            "Volumes that have backups enabled",
-            labels=['namespace'],
-        )
-        volume_backup_due = GaugeHistogramMetricFamily(
-            'volume_backups_due',
-            "Volumes to backup by due date (in hours)",
-            labels=['namespace'],
-        )
-        volume_backup_age = GaugeHistogramMetricFamily(
-            'volume_backup_age',
-            "Volumes to backup by last success age (in hours)",
-            labels=['namespace'],
-        )
-        running_backup_jobs = GaugeMetricFamily(
-            'running_backup_jobs',
-            "Number of backup jobs running now",
-            labels=['namespace'],
-        )
-        failed_backup_jobs = GaugeMetricFamily(
-            'failed_backup_jobs',
-            "Number of backup jobs in failed status",
-            labels=['namespace'],
-        )
-        failed_backup_crons = GaugeMetricFamily(
-            'failed_backup_crons',
-            "Number of cronjob instances in failed status",
-        )
+    namespaces = {}
+    for vol in to_backup:
+        try:
+            data = namespaces[vol['namespace']]
+        except KeyError:
+            data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37}
+            namespaces[vol['namespace']] = data
 
-        namespaces = {}
-        for vol in to_backup:
-            try:
-                data = namespaces[vol['namespace']]
-            except KeyError:
-                data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37}
-                namespaces[vol['namespace']] = data
+        data['volumes'] += 1
 
-            data['volumes'] += 1
+        if vol['last_attempt'] is None:
+            due = 0
+        else:
+            due = (vol['last_attempt'] - now).total_seconds() + 24 * 3600
+            due = max(0, due)
+            due = math.ceil(due / 3600)
+            due = min(24, due)
+        data['due'][due] += 1
 
-            if vol['last_attempt'] is None:
-                due = 0
-            else:
-                due = (vol['last_attempt'] - now).total_seconds() + 24 * 3600
-                due = max(0, due)
-                due = math.ceil(due / 3600)
-                due = min(24, due)
-            data['due'][due] += 1
+        if vol['last_backup'] is None:
+            age = 36
+        else:
+            age = (now - vol['last_backup']).total_seconds()
+            age = math.floor(age / 3600)
+            age = min(36, age)
+        data['age'][age] += 1
 
-            if vol['last_backup'] is None:
-                age = 36
-            else:
-                age = (now - vol['last_backup']).total_seconds()
-                age = math.floor(age / 3600)
-                age = min(36, age)
-            data['age'][age] += 1
+    for namespace, data in namespaces.items():
+        volumes_backed_up.add_metric([namespace], data['volumes'])
 
-        for namespace, data in namespaces.items():
-            volumes_backed_up.add_metric([namespace], data['volumes'])
+        sum_value = 0
+        buckets = []
+        for due, value in enumerate(data['due'][:24]):
+            sum_value += value
+            buckets.append((str(due), sum_value))
+        sum_value += data['due'][24]
+        buckets.append(('+Inf', sum_value))
+        volume_backup_due.add_metric([namespace], buckets, sum_value)
 
-            sum_value = 0
-            buckets = []
-            for due, value in enumerate(data['due'][:24]):
-                sum_value += value
-                buckets.append((str(due), sum_value))
-            sum_value += data['due'][24]
-            buckets.append(('+Inf', sum_value))
-            volume_backup_due.add_metric([namespace], buckets, sum_value)
+        sum_value = 0
+        buckets = []
+        for age, value in enumerate(data['age'][:36]):
+            sum_value += value
+            buckets.append((str(age), sum_value))
+        sum_value += data['age'][36]
+        buckets.append(('+Inf', sum_value))
+        volume_backup_age.add_metric([namespace], buckets, sum_value)
 
-            sum_value = 0
-            buckets = []
-            for age, value in enumerate(data['age'][:36]):
-                sum_value += value
-                buckets.append((str(age), sum_value))
-            sum_value += data['age'][36]
-            buckets.append(('+Inf', sum_value))
-            volume_backup_age.add_metric([namespace], buckets, sum_value)
-
-        running_jobs = {}
-        failed_jobs = {}
-        backup_info = {}
-        for job in jobs:
-            labels = job.metadata.labels
-            ns = labels[METADATA_PREFIX + 'pvc-namespace']
-            pvc = labels[METADATA_PREFIX + 'pvc-name']
-            if job.status.active:
-                running_jobs[ns] = running_jobs.get(ns, 0) + 1
-                backup_info.setdefault((ns, pvc), []).append(
-                    'active ' + job.metadata.name,
-                )
-            elif any(
-                condition.type.lower() == 'failed'
-                and condition.status.lower() == "true"
-                for condition in job.status.conditions or ()
-            ):
-                failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
-                backup_info.setdefault((ns, pvc), []).append(
-                    'failed ' + job.metadata.name,
-                )
-            else:
-                backup_info.setdefault((ns, pvc), []).append(
-                    'done ' + job.metadata.name,
-                )
-
-        if self.show_table:
-            table = []
-            for vol in to_backup:
-                info = backup_info.get((vol['namespace'], vol['name']), ())
-                table.append((
-                    vol['namespace'],
-                    vol['name'],
-                    vol['last_attempt'].isoformat()
-                    if vol['last_attempt'] else 'none',
-                    vol['last_backup'].isoformat()
-                    if vol['last_backup'] else 'none',
-                    ', '.join(info),
-                ))
-            print_table(
-                logger.info,
-                table,
-                ('NAMESPACE', 'PVC', 'LAST ATTEMPT', 'LAST BACKUP', 'JOBS'),
+    running_jobs = {}
+    failed_jobs = {}
+    backup_info = {}
+    for job in jobs:
+        labels = job.metadata.labels
+        ns = labels[METADATA_PREFIX + 'pvc-namespace']
+        pvc = labels[METADATA_PREFIX + 'pvc-name']
+        if job.status.active:
+            running_jobs[ns] = running_jobs.get(ns, 0) + 1
+            backup_info.setdefault((ns, pvc), []).append(
+                'active ' + job.metadata.name,
+            )
+        elif any(
+            condition.type.lower() == 'failed'
+            and condition.status.lower() == "true"
+            for condition in job.status.conditions or ()
+        ):
+            failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
+            backup_info.setdefault((ns, pvc), []).append(
+                'failed ' + job.metadata.name,
+            )
+        else:
+            backup_info.setdefault((ns, pvc), []).append(
+                'done ' + job.metadata.name,
             )
 
-        for namespace, value in running_jobs.items():
-            running_backup_jobs.add_metric([namespace], value)
+    if show_table:
+        table = []
+        for vol in to_backup:
+            info = backup_info.get((vol['namespace'], vol['name']), ())
+            table.append((
+                vol['namespace'],
+                vol['name'],
+                vol['last_attempt'].isoformat()
+                if vol['last_attempt'] else 'none',
+                vol['last_backup'].isoformat()
+                if vol['last_backup'] else 'none',
+                ', '.join(info),
+            ))
+        print_table(
+            print,
+            table,
+            ('NAMESPACE', 'PVC', 'LAST ATTEMPT', 'LAST BACKUP', 'JOBS'),
+        )
 
-        for namespace, value in failed_jobs.items():
-            failed_backup_jobs.add_metric([namespace], value)
+    for namespace, value in running_jobs.items():
+        running_backup_jobs.add_metric([namespace], value)
 
-        failed_crons = 0
-        for cron in crons:
-            if any(
-                condition.type.lower() == 'failed'
-                and condition.status.lower() == "true"
-                for condition in cron.status.conditions or ()
-            ):
-                failed_crons += 1
+    for namespace, value in failed_jobs.items():
+        failed_backup_jobs.add_metric([namespace], value)
 
-        failed_backup_crons.add_metric([], failed_crons)
+    failed_crons = 0
+    for cron in crons:
+        if any(
+            condition.type.lower() == 'failed'
+            and condition.status.lower() == "true"
+            for condition in cron.status.conditions or ()
+        ):
+            failed_crons += 1
 
-        return [
-            volumes_backed_up,
-            volume_backup_due,
-            volume_backup_age,
-            running_backup_jobs,
-            failed_backup_jobs,
-            failed_backup_crons,
-        ]
+    failed_backup_crons.add_metric([], failed_crons)
+
+    return [
+        volumes_backed_up,
+        volume_backup_due,
+        volume_backup_age,
+        running_backup_jobs,
+        failed_backup_jobs,
+        failed_backup_crons,
+    ]
+
+
+class Collector(object):
+    def collect(self):
+        return collect()
 
 
 class SilentHandler(WSGIRequestHandler):
@@ -245,7 +246,11 @@ def main():
         logger.info("Using in-cluster config")
         k8s_config.load_incluster_config()
 
-    REGISTRY.register(Collector(show_table=args.table))
+    if args.table:
+        collect(True)
+        return
+
+    REGISTRY.register(Collector())
 
     httpd = make_server(
         '0.0.0.0', 8080,
