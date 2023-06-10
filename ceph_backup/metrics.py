@@ -162,6 +162,10 @@ def collect(show_table=False):
             backup_info.setdefault((ns, pvc), []).append(
                 'failed ' + job.metadata.name,
             )
+        elif not job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
+            backup_info.setdefault((ns, pvc), []).append(
+                'ran ' + job.metadata.name,
+            )
         else:
             backup_info.setdefault((ns, pvc), []).append(
                 'done ' + job.metadata.name,
