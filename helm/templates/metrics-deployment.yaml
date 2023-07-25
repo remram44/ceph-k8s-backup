@@ -46,6 +46,10 @@ spec:
             httpGet:
               path: /
               port: http-metrics
+            failureThreshold: 2
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 10
           resources:
             {{- toYaml .Values.metrics.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
