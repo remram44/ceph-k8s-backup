@@ -40,7 +40,7 @@ spec:
                   fieldPath: metadata.namespace
           ports:
             - name: http-metrics
-              containerPort: {{ .Values.metrics.service.port }}
+              containerPort: 8080
               protocol: TCP
           readinessProbe:
             httpGet:
