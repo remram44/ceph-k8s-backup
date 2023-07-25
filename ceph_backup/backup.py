@@ -355,13 +355,12 @@ def backup_rbd_fs(api, ceph, vol, now):
                             image=BACKUP_IMAGE,
                             args=[
                                 'restic',
-                                '-r', '$(URL)',
                                 '--host', '$(HOST)',
                                 '--exclude', 'lost+found',
                                 'backup', '/data',
                             ],
                             env=format_env(
-                                URL=('secret', RESTIC_SECRET_NAME, 'url'),
+                                RESTIC_REPOSITORY=('secret', RESTIC_SECRET_NAME, 'url'),
                                 HOST='rbd-fs-%s-nspvc-%s' % (
                                     vol['namespace'],
                                     vol['name'],
@@ -487,7 +486,6 @@ def backup_rbd_block(api, ceph, vol, now):
         + ' > /tmp/layout.json'
         + ' && streaming-qcow2-writer /disk /tmp/layout.json'
         + ' | restic'
-        + ' -r $(URL)'
         + ' --host $(HOST)'
         + ' backup --stdin --stdin-filename disk.qcow2'
     )
@@ -514,7 +512,7 @@ def backup_rbd_block(api, ceph, vol, now):
                             image=BACKUP_IMAGE,
                             args=['sh', '-c', script],
                             env=format_env(
-                                URL=('secret', RESTIC_SECRET_NAME, 'url'),
+                                RESTIC_REPOSITORY=('secret', RESTIC_SECRET_NAME, 'url'),
                                 HOST='rbd-block-%s-nspvc-%s' % (
                                     vol['namespace'],
                                     vol['name'],
