@@ -90,6 +90,7 @@ def main():
         description="Backup up Ceph volumes on a Kubernetes cluster",
     )
     parser.add_argument('--kubeconfig', nargs=1)
+    parser.add_argument('--cleanup-only', action='store_true', default=False)
     args = parser.parse_args()
 
     if args.kubeconfig:
@@ -113,6 +114,9 @@ def main():
 
     # Clean old jobs
     currently_backing_up = cleanup_jobs(api)
+
+    if args.cleanup_only:
+        return
 
     # Back up volumes
     to_backup = build_list_to_backup(api, now)
