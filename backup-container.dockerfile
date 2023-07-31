@@ -15,9 +15,16 @@ RUN curl -Lo /tmp/streaming-qcow2-writer_linux_amd64.bz2 https://github.com/remr
     chmod +x /streaming-qcow2-writer
 
 FROM ubuntu:22.04
+
+ENV TINI_VERSION v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+
 RUN apt-get update -yy && \
     apt-get install -yy curl ca-certificates ceph-common && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=download /restic /usr/local/bin/restic
 COPY --from=download /streaming-qcow2-writer /usr/local/bin/streaming-qcow2-writer
+
+ENTRYPOINT ["/tini", "--"]

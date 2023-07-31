@@ -14,6 +14,10 @@ RUN /root/.local/bin/poetry export -o requirements.txt
 
 FROM python:3.10
 
+ENV TINI_VERSION v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+
 # Install rbd
 RUN apt-get update && \
     apt-get install -yy ceph-common && \
@@ -40,4 +44,5 @@ RUN mkdir -p /usr/src/app/home && \
 ENV PYTHONFAULTHANDLER=1
 
 USER 998
+ENTRYPOINT ["/tini", "--"]
 CMD ["ceph-backup"]
