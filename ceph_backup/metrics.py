@@ -78,6 +78,11 @@ def collect(show_table=False):
         "Volumes to backup by last success age (in hours)",
         labels=['namespace'],
     )
+    volume_never_backed_up = GaugeMetricFamily(
+        'volume_never_backed_up',
+        "Volumes that have never been backed up",
+        labels=['namespace'],
+    )
     running_backup_jobs = GaugeMetricFamily(
         'running_backup_jobs',
         "Number of backup jobs running now",
@@ -98,7 +103,7 @@ def collect(show_table=False):
         try:
             data = namespaces[vol['namespace']]
         except KeyError:
-            data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37}
+            data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37, 'never': 0}
             namespaces[vol['namespace']] = data
 
         data['volumes'] += 1
@@ -113,15 +118,17 @@ def collect(show_table=False):
         data['due'][due] += 1
 
         if vol['last_backup'] is None:
-            age = 36
+            data['never'] += 1
         else:
             age = (now - vol['last_backup']).total_seconds()
             age = math.floor(age / 3600)
             age = min(36, age)
-        data['age'][age] += 1
+            data['age'][age] += 1
 
     for namespace, data in namespaces.items():
         volumes_backed_up.add_metric([namespace], data['volumes'])
+
+        volume_never_backed_up.add_metric([namespace], data['never'])
 
         sum_value = 0
         buckets = []
@@ -211,6 +218,7 @@ def collect(show_table=False):
         volumes_backed_up,
         volume_backup_due,
         volume_backup_age,
+        volume_never_backed_up,
         running_backup_jobs,
         failed_backup_jobs,
         failed_backup_crons,
