@@ -59,6 +59,10 @@ spec:
                   value: {{ .Values.cephKeySecretName | quote }}
                 - name: RESTIC_SECRET_NAME
                   value: {{ .Values.resticSecretName | quote }}
+                - name: BACKUP_IMAGE
+                  value: "{{ .Values.backupImage.repository }}:{{ .Values.backupImage.tag | default .Chart.AppVersion }}"
+                - name: BACKUP_IMAGE_PULL_POLICY
+                  value: {{ .Values.backupImage.pullPolicy }}
               volumeMounts:
                 - name: ceph
                   mountPath: /var/run/secrets/ceph

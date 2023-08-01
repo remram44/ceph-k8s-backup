@@ -24,6 +24,10 @@ BACKUP_IMAGE = os.environ.get(
     'ghcr.io/remram44/ceph-k8s-backup/restic:'
     + '0.2.2',
 )
+BACKUP_IMAGE_PULL_POLICY = os.environ.get(
+    'BACKUP_IMAGE_PULL_POLICY',
+    'IfNotPresent',
+)
 
 
 def render_date(dt):
@@ -359,6 +363,7 @@ def backup_rbd_fs(api, ceph, vol, now):
                         k8s_client.V1Container(
                             name='backup',
                             image=BACKUP_IMAGE,
+                            image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
                             args=[
                                 'restic',
                                 '--host', '$(HOST)',
@@ -515,6 +520,7 @@ def backup_rbd_block(api, ceph, vol, now):
                         k8s_client.V1Container(
                             name='backup',
                             image=BACKUP_IMAGE,
+                            image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
                             args=['sh', '-c', script],
                             env=format_env(
                                 RESTIC_REPOSITORY=('secret', RESTIC_SECRET_NAME, 'url'),

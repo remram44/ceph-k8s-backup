@@ -8,6 +8,12 @@ image:
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
 
+backupImage:
+  repository: ghcr.io/remram44/ceph-k8s-backup/restic
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
