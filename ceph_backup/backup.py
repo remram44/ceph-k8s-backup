@@ -21,7 +21,7 @@ RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
 
 BACKUP_IMAGE = os.environ.get(
     'BACKUP_IMAGE',
-    'registry.hsrn.nyu.edu/hsrn-projects/ceph-backup/restic-container:'
+    'ghcr.io/remram44/ceph-k8s-backup/restic:'
     + '0.2.2',
 )
 

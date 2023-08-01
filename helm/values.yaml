@@ -3,7 +3,7 @@
 # Declare variables to be passed into your templates.
 
 image:
-  repository: registry.hsrn.nyu.edu/hsrn-projects/ceph-backup
+  repository: ghcr.io/remram44/ceph-k8s-backup
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
