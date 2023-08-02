@@ -302,7 +302,7 @@ def cleanup_jobs(api):
                     },
                 },
                 'spec': {
-                    'ttlSecondsAfterFinished': 22 * 3600,
+                    'ttlSecondsAfterFinished': 3600,
                 },
             },
         )
