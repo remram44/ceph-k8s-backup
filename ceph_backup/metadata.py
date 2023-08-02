@@ -78,7 +78,7 @@ def list_volumes_to_backup(api):
             last_attempt = parse_date(last_attempt)
         else:
             # Don't backup a volume for 6 hours
-            last_attempt = pv.metadata.creation_timestamp - timedelta(hours=6)
+            last_attempt = pv.metadata.creation_timestamp - timedelta(hours=18)
             if last_attempt.tzinfo is None:
                 pass
             elif last_attempt.tzinfo.utcoffset(last_attempt) == timedelta(0):
