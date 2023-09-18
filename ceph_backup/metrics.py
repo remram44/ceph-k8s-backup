@@ -162,7 +162,7 @@ def collect(show_table=False):
             )
         elif any(
             condition.type.lower() == 'failed'
-            and condition.status.lower() == "true"
+            and condition.status.lower() == 'true'
             for condition in job.status.conditions or ()
         ):
             failed_jobs[ns] = failed_jobs.get(ns, 0) + 1
@@ -207,7 +207,7 @@ def collect(show_table=False):
     for cron in crons:
         if any(
             condition.type.lower() == 'failed'
-            and condition.status.lower() == "true"
+            and condition.status.lower() == 'true'
             for condition in cron.status.conditions or ()
         ):
             failed_crons += 1

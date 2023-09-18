@@ -213,7 +213,8 @@ def cleanup_jobs(api):
         if job.status.completion_time:
             completed = True
         if any(
-            condition.type == 'Failed' and condition.status is True
+            condition.type.lower() == 'failed'
+            and condition.status.lower() == 'true'
             for condition in job.status.conditions or ()
         ):
             completed = True
