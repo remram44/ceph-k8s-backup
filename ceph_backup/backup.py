@@ -210,6 +210,7 @@ def cleanup_jobs(api):
         pv = meta.labels[METADATA_PREFIX + 'pv-name']
 
         completed = False
+        successful = True
         if job.status.completion_time:
             completed = True
         if any(
@@ -218,6 +219,7 @@ def cleanup_jobs(api):
             for condition in job.status.conditions or ()
         ):
             completed = True
+            successful = False
 
         if not completed:
             # Don't start another backup before this job has finished
@@ -237,38 +239,39 @@ def cleanup_jobs(api):
             pvc_name,
         )
 
-        # Get start time
-        start_time = meta.annotations[METADATA_PREFIX + 'start-time']
+        if successful:
+            # Get start time
+            start_time = meta.annotations[METADATA_PREFIX + 'start-time']
 
-        # Annotate the PVC
-        try:
-            pvc = corev1.read_namespaced_persistent_volume_claim(
-                pvc_name,
-                pvc_namespace,
-            )
-        except k8s_client.ApiException as e:
-            if e.status != 404:
-                raise
-        else:
-            # Don't update if the PVC has a more recent time already
-            existing_time = pvc.metadata.annotations.get(
-                METADATA_PREFIX + 'last-backup'
-            )
-            if (
-                not existing_time
-                or parse_date(existing_time) < parse_date(start_time)
-            ):
-                corev1.patch_namespaced_persistent_volume_claim(
+            # Annotate the PVC
+            try:
+                pvc = corev1.read_namespaced_persistent_volume_claim(
                     pvc_name,
                     pvc_namespace,
-                    {
-                        'metadata': {
-                            'annotations': {
-                                METADATA_PREFIX + 'last-backup': start_time,
+                )
+            except k8s_client.ApiException as e:
+                if e.status != 404:
+                    raise
+            else:
+                # Don't update if the PVC has a more recent time already
+                existing_time = pvc.metadata.annotations.get(
+                    METADATA_PREFIX + 'last-backup'
+                )
+                if (
+                    not existing_time
+                    or parse_date(existing_time) < parse_date(start_time)
+                ):
+                    corev1.patch_namespaced_persistent_volume_claim(
+                        pvc_name,
+                        pvc_namespace,
+                        {
+                            'metadata': {
+                                'annotations': {
+                                    METADATA_PREFIX + 'last-backup': start_time,
+                                },
                             },
                         },
-                    },
-                )
+                    )
 
         # Remove the snapshot and cloned image
         rbd_pool = meta.labels[METADATA_PREFIX + 'rbd-pool']
