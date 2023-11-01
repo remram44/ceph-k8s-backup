@@ -15,7 +15,7 @@ from .metadata import METADATA_PREFIX, NAMESPACE, list_volumes_to_backup
 
 logger = logging.getLogger(__name__)
 
-AGE_BUCKETS = 36
+AGE_BUCKETS = 48
 
 
 def print_table(log, table, header=None):
