@@ -15,6 +15,8 @@ from .metadata import METADATA_PREFIX, NAMESPACE, list_volumes_to_backup
 
 logger = logging.getLogger(__name__)
 
+AGE_BUCKETS = 36
+
 
 def print_table(log, table, header=None):
     # Measure fields
@@ -103,7 +105,12 @@ def collect(show_table=False):
         try:
             data = namespaces[vol['namespace']]
         except KeyError:
-            data = {'volumes': 0, 'due': [0] * 25, 'age': [0] * 37, 'never': 0}
+            data = {
+                'volumes': 0,
+                'due': [0] * 25,
+                'age': [0] * (AGE_BUCKETS + 1),
+                'never': 0,
+            }
             namespaces[vol['namespace']] = data
 
         data['volumes'] += 1
@@ -122,7 +129,7 @@ def collect(show_table=False):
         else:
             age = (now - vol['last_backup']).total_seconds()
             age = math.floor(age / 3600)
-            age = min(36, age)
+            age = min(AGE_BUCKETS, age)
             data['age'][age] += 1
 
     for namespace, data in namespaces.items():
@@ -141,10 +148,10 @@ def collect(show_table=False):
 
         sum_value = 0
         buckets = []
-        for age, value in enumerate(data['age'][:36]):
+        for age, value in enumerate(data['age'][:AGE_BUCKETS]):
             sum_value += value
             buckets.append((str(age), sum_value))
-        sum_value += data['age'][36]
+        sum_value += data['age'][AGE_BUCKETS]
         buckets.append(('+Inf', sum_value))
         volume_backup_age.add_metric([namespace], buckets, sum_value)
 
