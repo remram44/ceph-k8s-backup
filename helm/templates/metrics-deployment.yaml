@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "ceph-backup.metrics.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.metrics.replicaCount }}
   selector:
     matchLabels:
       {{- include "ceph-backup.metrics.selectorLabels" . | nindent 6 }}
