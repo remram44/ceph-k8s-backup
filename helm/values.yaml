@@ -71,6 +71,7 @@ metrics:
     enabled: false
     minAvailable: 1
     maxUnavailable: null
+  enableAntiAffinity: true
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
