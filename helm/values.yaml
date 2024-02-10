@@ -67,6 +67,10 @@ metrics:
     type: ClusterIP
     port: 8080
   resources: {}
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: null
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious

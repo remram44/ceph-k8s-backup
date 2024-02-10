@@ -1,0 +1,18 @@
+{{ if .Values.metrics.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ceph-backup.fullname" . }}-metrics
+  labels:
+    {{- include "ceph-backup.metrics.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ceph-backup.metrics.selectorLabels" . | nindent 6 }}
+  {{- if ne .Values.metrics.podDisruptionBudget.minAvailable nil }}
+  minAvailable: {{ .Values.metrics.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if ne .Values.metrics.podDisruptionBudget.maxUnavailable nil }}
+  maxUnavailable: {{ .Values.metrics.podDisruptionBudget.minAvailable }}
+  {{- end }}
+{{- end }}
