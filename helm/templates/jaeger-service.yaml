@@ -1,0 +1,21 @@
+{{ if .Values.metrics.jaegerEnabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ceph-backup.fullname" . }}-jaeger
+  labels:
+    {{- include "ceph-backup.jaeger.labels" . | nindent 4 }}
+spec:
+  type: "ClusterIP"
+  ports:
+    - port: 80
+      targetPort: 16686
+      protocol: TCP
+      name: http
+    - port: 4317
+      targetPort: 4317
+      protocol: TCP
+      name: otlp-grpc
+  selector:
+    {{- include "ceph-backup.jaeger.selectorLabels" . | nindent 4 }}
+{{- end }}

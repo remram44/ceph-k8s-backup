@@ -11,6 +11,8 @@ python = "^3.10"
 prometheus-client = "*"
 kubernetes = "*"
 opentelemetry-api = "*"
+opentelemetry-distro = "*"
+opentelemetry-exporter-otlp-proto-grpc = "*"
 
 [tool.poetry.scripts]
 ceph-backup = "ceph_backup.backup:main"

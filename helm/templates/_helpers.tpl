@@ -84,3 +84,24 @@ app.kubernetes.io/name: {{ include "ceph-backup.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: metrics
 {{- end }}
+
+{{/*
+Jaeger labels
+*/}}
+{{- define "ceph-backup.jaeger.labels" -}}
+helm.sh/chart: {{ include "ceph-backup.chart" . }}
+{{ include "ceph-backup.jaeger.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Jaeger selector labels
+*/}}
+{{- define "ceph-backup.jaeger.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "ceph-backup.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: jaeger
+{{- end }}

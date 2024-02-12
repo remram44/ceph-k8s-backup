@@ -44,5 +44,5 @@ RUN mkdir -p /usr/src/app/home && \
 ENV PYTHONFAULTHANDLER=1
 
 USER 998
-ENTRYPOINT ["/tini", "--"]
+ENTRYPOINT ["/tini", "--", "/bin/bash", "-c", "if [ x\"$OTEL_TRACES_EXPORTER\" != x ]; then exec opentelemetry-instrument \"$@\"; else exec \"$@\"; fi", "--"]
 CMD ["ceph-backup"]

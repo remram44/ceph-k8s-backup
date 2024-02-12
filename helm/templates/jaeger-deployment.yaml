@@ -1,0 +1,81 @@
+{{ if .Values.metrics.jaegerEnabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ceph-backup.fullname" . }}-jaeger
+  labels:
+    {{- include "ceph-backup.jaeger.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ceph-backup.jaeger.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+      {{- include "ceph-backup.jaeger.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: fix-permissions
+          image: busybox
+          args: ["sh", "-c", "mkdir -p /badger && chown -R 999 /badger"]
+          volumeMounts:
+            - mountPath: /badger
+              name: data
+      containers:
+        - name: {{ .Chart.Name }}-metrics-jaeger
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "jaegertracing/all-in-one:1.54.0"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: SPAN_STORAGE_TYPE
+              value: badger
+            - name: BADGER_EPHEMERAL
+              value: "false"
+            - name: BADGER_DIRECTORY_KEY
+              value: "/badger/key"
+            - name: BADGER_DIRECTORY_VALUE
+              value: "/badger/value"
+          volumeMounts:
+            - mountPath: /badger
+              name: data
+          ports:
+            - name: http
+              containerPort: 16686
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+          securityContext:
+            runAsUser: 999
+          resources:
+            {{- toYaml .Values.metrics.resources | nindent 12 }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
