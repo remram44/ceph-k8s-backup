@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import functools
 import kubernetes.client as k8s_client
 import logging
+import opentelemetry.trace
 import os
 import time
 
@@ -15,6 +16,7 @@ NAMESPACE = os.environ.get('NAMESPACE', 'ceph-backup')
 
 
 logger = logging.getLogger(__name__)
+tracer = opentelemetry.trace.get_tracer(__name__)
 
 
 def parse_bool(value):
@@ -56,23 +58,27 @@ def warn_time(func):
 
 
 @warn_time
+@tracer.start_as_current_span('list_namespaces')
 def list_namespaces(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_namespace().items
 
 
 @warn_time
+@tracer.start_as_current_span('list_persistent_volume_claims')
 def list_persistent_volume_claims(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_persistent_volume_claim_for_all_namespaces().items
 
 
 @warn_time
+@tracer.start_as_current_span('list_persistent_volumes')
 def list_persistent_volumes(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_persistent_volume().items
 
 
+@tracer.start_as_current_span('list_volumes_to_backup')
 def list_volumes_to_backup(api):
     # List all namespaces, collect backup configuration
     namespaces = {}
