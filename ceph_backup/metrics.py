@@ -58,15 +58,18 @@ def collect(show_table=False):
         to_backup = list_volumes_to_backup(api)
 
         batchv1 = k8s_client.BatchV1Api(api)
-        jobs = batchv1.list_namespaced_job(
-            NAMESPACE,
-            label_selector=METADATA_PREFIX + 'volume-type=rbd',
-        ).items
 
-        crons = batchv1.list_namespaced_job(
-            NAMESPACE,
-            label_selector='app.kubernetes.io/component=scheduler',
-        ).items
+        with tracer.start_as_current_span('list_rbd_jobs'):
+            jobs = batchv1.list_namespaced_job(
+                NAMESPACE,
+                label_selector=METADATA_PREFIX + 'volume-type=rbd',
+            ).items
+
+        with tracer.start_as_current_span('list_scheduler_jobs'):
+            crons = batchv1.list_namespaced_job(
+                NAMESPACE,
+                label_selector='app.kubernetes.io/component=scheduler',
+            ).items
 
     volumes_backed_up = GaugeMetricFamily(
         'volumes_backed_up',
