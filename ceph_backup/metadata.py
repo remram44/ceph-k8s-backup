@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
+import functools
 import kubernetes.client as k8s_client
 import logging
 import os
+import time
 
 
 METADATA_PREFIX = 'cephbackup.hpc.nyu.edu/'
@@ -31,16 +33,41 @@ def parse_date(s):
     return datetime.fromisoformat(s[:-1])
 
 
+WARN_LIMIT = 3
+
+
+def warn_time(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.monotonic()
+        ret = func(*args, **kwargs)
+        elapsed = time.monotonic() - start
+
+        if elapsed >= WARN_LIMIT:
+            try:
+                descr = func.__name__
+            except Exception:
+                descr = repr(func)
+            logger.warning("%s took %.1fs", descr, elapsed)
+
+        return ret
+
+    return wrapper
+
+
+@warn_time
 def list_namespaces(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_namespace().items
 
 
+@warn_time
 def list_persistent_volume_claims(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_persistent_volume_claim_for_all_namespaces().items
 
 
+@warn_time
 def list_persistent_volumes(api):
     corev1 = k8s_client.CoreV1Api(api)
     return corev1.list_persistent_volume().items
