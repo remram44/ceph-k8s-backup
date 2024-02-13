@@ -157,8 +157,16 @@ def backup_main(now, ceph, cleanup_only):
             vol['size'] or 'unknown',
         )
 
+        vol_otel_attributes = {
+            'pvc_namespace': vol['namespace'],
+            'pvc': vol['name'],
+        }
+
         # Annotate the PV
-        with tracer.start_as_current_span('annotate-pv'):
+        with tracer.start_as_current_span(
+            'annotate-pv',
+            attributes=vol_otel_attributes,
+        ):
             corev1.patch_persistent_volume(vol['pv'], {
                 'metadata': {
                     'annotations': {
@@ -168,9 +176,17 @@ def backup_main(now, ceph, cleanup_only):
             })
 
         if vol['mode'] == 'Filesystem':
-            backup_rbd_fs(api, ceph, vol, now)
+            with tracer.start_as_current_span(
+                'backup_rbd_fs',
+                attributes=vol_otel_attributes,
+            ):
+                backup_rbd_fs(api, ceph, vol, now)
         else:
-            backup_rbd_block(api, ceph, vol, now)
+            with tracer.start_as_current_span(
+                'backup_rbd_block',
+                attributes=vol_otel_attributes,
+            ):
+                backup_rbd_block(api, ceph, vol, now)
 
 
 def build_list_to_backup(api, now):
@@ -209,7 +225,6 @@ def build_list_to_backup(api, now):
 def cleanup_jobs(api):
     currently_backing_up = {}
 
-    corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
     with tracer.start_as_current_span('list_namespaced_job'):
         jobs = batchv1.list_namespaced_job(
@@ -217,122 +232,142 @@ def cleanup_jobs(api):
             label_selector=METADATA_PREFIX + 'volume-type=rbd',
         ).items
     for job in jobs:
-        meta = job.metadata
-        pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
-        pvc_name = meta.labels[METADATA_PREFIX + 'pvc-name']
-        pv = meta.labels[METADATA_PREFIX + 'pv-name']
-
-        completed = False
-        successful = True
-        if job.status.completion_time:
-            completed = True
-        if any(
-            condition.type.lower() == 'failed'
-            and condition.status.lower() == 'true'
-            for condition in job.status.conditions or ()
+        labels = job.metadata.labels
+        with tracer.start_as_current_span(
+            'cleanup_job',
+            attributes={
+                'job': job.metadata.name,
+                'pvc_namespace': labels[METADATA_PREFIX + 'pvc-namespace'],
+                'pvc_name': labels[METADATA_PREFIX + 'pvc-name'],
+            },
         ):
-            completed = True
-            successful = False
+            cleaned_up = cleanup_job(api, job)
 
-        if not completed:
+        if not cleaned_up:
             # Don't start another backup before this job has finished
+            pv = labels[METADATA_PREFIX + 'pv-name']
             currently_backing_up[pv] = job.metadata.name
-
-            # Don't clean up
-            continue
-
-        if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
-            continue
-
-        logger.info(
-            "Cleaning up job=%s pv=%s, pvc=%s/%s",
-            meta.name,
-            pv,
-            pvc_namespace,
-            pvc_name,
-        )
-
-        if successful:
-            # Get start time
-            start_time = meta.annotations[METADATA_PREFIX + 'start-time']
-
-            # Annotate the PVC
-            with tracer.start_as_current_span('annotate-pvc'):
-                try:
-                    pvc = corev1.read_namespaced_persistent_volume_claim(
-                        pvc_name,
-                        pvc_namespace,
-                    )
-                except k8s_client.ApiException as e:
-                    if e.status != 404:
-                        raise
-                else:
-                    # Don't update if the PVC has a more recent time already
-                    existing_time = pvc.metadata.annotations.get(
-                        METADATA_PREFIX + 'last-backup'
-                    )
-                    if (
-                        not existing_time
-                        or parse_date(existing_time) < parse_date(start_time)
-                    ):
-                        annotation = {
-                            METADATA_PREFIX + 'last-backup': start_time,
-                        }
-                        corev1.patch_namespaced_persistent_volume_claim(
-                            pvc_name,
-                            pvc_namespace,
-                            {
-                                'metadata': {
-                                    'annotations': annotation,
-                                },
-                            },
-                    )
-
-        # Remove the snapshot and cloned image
-        rbd_pool = meta.labels[METADATA_PREFIX + 'rbd-pool']
-        rbd_name = meta.labels[METADATA_PREFIX + 'rbd-name']
-        rbd_fq_backup_img = rbd_pool + '/' + 'backup-' + rbd_name
-        rbd_fq_snapshot = rbd_pool + '/' + rbd_name + '@backup'
-        with tracer.start_as_current_span('delete-snapshot'):
-            if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
-                check_call(['rbd', 'rm', rbd_fq_backup_img])
-            if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
-                call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
-                check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
-
-        # Remove the PV and PVC if any
-        pv = meta.labels[METADATA_PREFIX + 'pv-name']
-        label_selector = METADATA_PREFIX + 'pv-name=%s' % pv
-        with tracer.start_as_current_span('delete-snapshot-pv-pvc'):
-            corev1.delete_collection_persistent_volume(
-                label_selector=label_selector,
-            )
-            corev1.delete_collection_namespaced_persistent_volume_claim(
-                NAMESPACE,
-                label_selector=label_selector,
-            )
-
-        # Annotate job
-        with tracer.start_as_current_span('patch-job'):
-            batchv1.patch_namespaced_job(
-                job.metadata.name,
-                job.metadata.namespace,
-                {
-                    'metadata': {
-                        'annotations': {
-                            METADATA_PREFIX + 'cleaned-up': 'true',
-                        },
-                    },
-                    'spec': {
-                        'ttlSecondsAfterFinished': 3600,
-                    },
-                },
-            )
 
     return currently_backing_up
 
 
-@tracer.start_as_current_span('backup_rbd_fs')
+def cleanup_job(api, job):
+    corev1 = k8s_client.CoreV1Api(api)
+    batchv1 = k8s_client.BatchV1Api(api)
+
+    meta = job.metadata
+    pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
+    pvc_name = meta.labels[METADATA_PREFIX + 'pvc-name']
+    pv = meta.labels[METADATA_PREFIX + 'pv-name']
+
+    completed = False
+    successful = True
+    if job.status.completion_time:
+        completed = True
+    if any(
+        condition.type.lower() == 'failed'
+        and condition.status.lower() == 'true'
+        for condition in job.status.conditions or ()
+    ):
+        completed = True
+        successful = False
+
+    if not completed:
+        # Don't start another backup before this job has finished
+        # Don't clean up
+        return False
+
+    if job.metadata.annotations.get(METADATA_PREFIX + 'cleaned-up'):
+        return True
+
+    logger.info(
+        "Cleaning up job=%s pv=%s, pvc=%s/%s",
+        meta.name,
+        pv,
+        pvc_namespace,
+        pvc_name,
+    )
+
+    if successful:
+        # Get start time
+        start_time = meta.annotations[METADATA_PREFIX + 'start-time']
+
+        # Annotate the PVC
+        with tracer.start_as_current_span('annotate-pvc'):
+            try:
+                pvc = corev1.read_namespaced_persistent_volume_claim(
+                    pvc_name,
+                    pvc_namespace,
+                )
+            except k8s_client.ApiException as e:
+                if e.status != 404:
+                    raise
+            else:
+                # Don't update if the PVC has a more recent time already
+                existing_time = pvc.metadata.annotations.get(
+                    METADATA_PREFIX + 'last-backup'
+                )
+                if (
+                    not existing_time
+                    or parse_date(existing_time) < parse_date(start_time)
+                ):
+                    annotation = {
+                        METADATA_PREFIX + 'last-backup': start_time,
+                    }
+                    corev1.patch_namespaced_persistent_volume_claim(
+                        pvc_name,
+                        pvc_namespace,
+                        {
+                            'metadata': {
+                                'annotations': annotation,
+                            },
+                        },
+                )
+
+    # Remove the snapshot and cloned image
+    rbd_pool = meta.labels[METADATA_PREFIX + 'rbd-pool']
+    rbd_name = meta.labels[METADATA_PREFIX + 'rbd-name']
+    rbd_fq_backup_img = rbd_pool + '/' + 'backup-' + rbd_name
+    rbd_fq_snapshot = rbd_pool + '/' + rbd_name + '@backup'
+    with tracer.start_as_current_span('delete-snapshot'):
+        if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
+            check_call(['rbd', 'rm', rbd_fq_backup_img])
+        if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
+            call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+            check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+
+    # Remove the PV and PVC if any
+    pv = meta.labels[METADATA_PREFIX + 'pv-name']
+    label_selector = METADATA_PREFIX + 'pv-name=%s' % pv
+    with tracer.start_as_current_span('delete-snapshot-pv-pvc'):
+        corev1.delete_collection_persistent_volume(
+            label_selector=label_selector,
+        )
+        corev1.delete_collection_namespaced_persistent_volume_claim(
+            NAMESPACE,
+            label_selector=label_selector,
+        )
+
+    # Annotate job
+    with tracer.start_as_current_span('patch-job'):
+        batchv1.patch_namespaced_job(
+            job.metadata.name,
+            job.metadata.namespace,
+            {
+                'metadata': {
+                    'annotations': {
+                        METADATA_PREFIX + 'cleaned-up': 'true',
+                    },
+                },
+                'spec': {
+                    'ttlSecondsAfterFinished': 3600,
+                },
+            },
+        )
+
+    return True
+
+
 def backup_rbd_fs(api, ceph, vol, now):
     batchv1 = k8s_client.BatchV1Api(api)
 
@@ -440,7 +475,6 @@ def backup_rbd_fs(api, ceph, vol, now):
     logger.info("Created job %s", job.metadata.name)
 
 
-@tracer.start_as_current_span('backup_rbd_block')
 def backup_rbd_block(api, ceph, vol, now):
     corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
