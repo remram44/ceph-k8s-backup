@@ -76,6 +76,10 @@ metrics:
 jaeger:
   enabled: false
   resources: {}
+  storage:
+    persistent: true
+    storageClass: null
+    capacity: 100Gi
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious

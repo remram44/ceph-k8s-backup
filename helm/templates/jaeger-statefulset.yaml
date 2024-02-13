@@ -1,14 +1,12 @@
 {{ if .Values.jaeger.enabled -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "ceph-backup.fullname" . }}-jaeger
   labels:
     {{- include "ceph-backup.jaeger.labels" . | nindent 4 }}
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "ceph-backup.jaeger.selectorLabels" . | nindent 6 }}
@@ -63,9 +61,11 @@ spec:
             runAsUser: 999
           resources:
             {{- toYaml .Values.jaeger.resources | nindent 12 }}
+      {{- if not .Values.jaeger.storage.persistent }}
       volumes:
         - name: data
           emptyDir: {}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -78,4 +78,18 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- if .Values.jaeger.storage.persistent }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if ne .Values.jaeger.storage.storageClass nil }}
+        storageClassName: {{ .Values.jaeger.storage.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.jaeger.storage.capacity }}
+  {{- end }}
 {{- end }}
