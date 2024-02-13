@@ -1,4 +1,4 @@
-{{ if .Values.metrics.jaegerEnabled -}}
+{{ if .Values.jaeger.enabled -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,7 +35,7 @@ spec:
             - mountPath: /badger
               name: data
       containers:
-        - name: {{ .Chart.Name }}-metrics-jaeger
+        - name: {{ .Chart.Name }}-jaeger
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "jaegertracing/all-in-one:1.54.0"
@@ -62,7 +62,7 @@ spec:
           securityContext:
             runAsUser: 999
           resources:
-            {{- toYaml .Values.metrics.resources | nindent 12 }}
+            {{- toYaml .Values.jaeger.resources | nindent 12 }}
       volumes:
         - name: data
           emptyDir: {}

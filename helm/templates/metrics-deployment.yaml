@@ -38,7 +38,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            {{- if .Values.metrics.jaegerEnabled }}
+            {{- if .Values.jaeger.enabled }}
             - name: OTEL_TRACES_EXPORTER
               value: "otlp_proto_grpc"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
