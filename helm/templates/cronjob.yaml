@@ -63,6 +63,16 @@ spec:
                   value: "{{ .Values.backupImage.repository }}:{{ .Values.backupImage.tag | default .Chart.AppVersion }}"
                 - name: BACKUP_IMAGE_PULL_POLICY
                   value: {{ .Values.backupImage.pullPolicy }}
+                {{- if .Values.jaeger.enabled }}
+                - name: OTEL_TRACES_EXPORTER
+                  value: "otlp_proto_grpc"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "http://{{ include "ceph-backup.fullname" . }}-jaeger:4317"
+                - name: OTEL_EXPORTER_OTLP_INSECURE
+                  value: "true"
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: "service.name=ceph-backup-scheduler"
+                {{- end }}
               volumeMounts:
                 - name: ceph
                   mountPath: /var/run/secrets/ceph
