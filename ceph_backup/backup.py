@@ -4,6 +4,7 @@ import kubernetes.client as k8s_client
 import kubernetes.config as k8s_config
 import logging
 import math
+import opentelemetry.trace
 import os
 import shlex
 import subprocess
@@ -13,6 +14,7 @@ from .metadata import METADATA_PREFIX, ANNOTATION_LAST_ATTEMPT, NAMESPACE, \
 
 
 logger = logging.getLogger(__name__)
+tracer = opentelemetry.trace.get_tracer(__name__)
 
 
 CEPH_SECRET_NAME = os.environ.get('CEPH_SECRET_NAME', 'ceph')
@@ -148,13 +150,14 @@ def main():
         )
 
         # Annotate the PV
-        corev1.patch_persistent_volume(vol['pv'], {
-            'metadata': {
-                'annotations': {
-                    ANNOTATION_LAST_ATTEMPT: render_date(now),
+        with tracer.start_as_current_span('annotate-pv'):
+            corev1.patch_persistent_volume(vol['pv'], {
+                'metadata': {
+                    'annotations': {
+                        ANNOTATION_LAST_ATTEMPT: render_date(now),
+                    },
                 },
-            },
-        })
+            })
 
         if vol['mode'] == 'Filesystem':
             backup_rbd_fs(api, ceph, vol, now)
@@ -194,15 +197,17 @@ def build_list_to_backup(api, now):
     return to_backup
 
 
+@tracer.start_as_current_span('cleanup_jobs')
 def cleanup_jobs(api):
     currently_backing_up = {}
 
     corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
-    jobs = batchv1.list_namespaced_job(
-        NAMESPACE,
-        label_selector=METADATA_PREFIX + 'volume-type=rbd',
-    ).items
+    with tracer.start_as_current_span('list_namespaced_job'):
+        jobs = batchv1.list_namespaced_job(
+            NAMESPACE,
+            label_selector=METADATA_PREFIX + 'volume-type=rbd',
+        ).items
     for job in jobs:
         meta = job.metadata
         pvc_namespace = meta.labels[METADATA_PREFIX + 'pvc-namespace']
@@ -244,33 +249,35 @@ def cleanup_jobs(api):
             start_time = meta.annotations[METADATA_PREFIX + 'start-time']
 
             # Annotate the PVC
-            try:
-                pvc = corev1.read_namespaced_persistent_volume_claim(
-                    pvc_name,
-                    pvc_namespace,
-                )
-            except k8s_client.ApiException as e:
-                if e.status != 404:
-                    raise
-            else:
-                # Don't update if the PVC has a more recent time already
-                existing_time = pvc.metadata.annotations.get(
-                    METADATA_PREFIX + 'last-backup'
-                )
-                if (
-                    not existing_time
-                    or parse_date(existing_time) < parse_date(start_time)
-                ):
-                    corev1.patch_namespaced_persistent_volume_claim(
+            with tracer.start_as_current_span('annotate-pvc'):
+                try:
+                    pvc = corev1.read_namespaced_persistent_volume_claim(
                         pvc_name,
                         pvc_namespace,
-                        {
-                            'metadata': {
-                                'annotations': {
-                                    METADATA_PREFIX + 'last-backup': start_time,
+                    )
+                except k8s_client.ApiException as e:
+                    if e.status != 404:
+                        raise
+                else:
+                    # Don't update if the PVC has a more recent time already
+                    existing_time = pvc.metadata.annotations.get(
+                        METADATA_PREFIX + 'last-backup'
+                    )
+                    if (
+                        not existing_time
+                        or parse_date(existing_time) < parse_date(start_time)
+                    ):
+                        annotation = {
+                            METADATA_PREFIX + 'last-backup': start_time,
+                        }
+                        corev1.patch_namespaced_persistent_volume_claim(
+                            pvc_name,
+                            pvc_namespace,
+                            {
+                                'metadata': {
+                                    'annotations': annotation,
                                 },
                             },
-                        },
                     )
 
         # Remove the snapshot and cloned image
@@ -278,42 +285,46 @@ def cleanup_jobs(api):
         rbd_name = meta.labels[METADATA_PREFIX + 'rbd-name']
         rbd_fq_backup_img = rbd_pool + '/' + 'backup-' + rbd_name
         rbd_fq_snapshot = rbd_pool + '/' + rbd_name + '@backup'
-        if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
-            check_call(['rbd', 'rm', rbd_fq_backup_img])
-        if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
-            call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
-            check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+        with tracer.start_as_current_span('delete-snapshot'):
+            if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
+                check_call(['rbd', 'rm', rbd_fq_backup_img])
+            if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
+                call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+                check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
 
         # Remove the PV and PVC if any
         pv = meta.labels[METADATA_PREFIX + 'pv-name']
         label_selector = METADATA_PREFIX + 'pv-name=%s' % pv
-        corev1.delete_collection_persistent_volume(
-            label_selector=label_selector,
-        )
-        corev1.delete_collection_namespaced_persistent_volume_claim(
-            NAMESPACE,
-            label_selector=label_selector,
-        )
+        with tracer.start_as_current_span('delete-snapshot-pv-pvc'):
+            corev1.delete_collection_persistent_volume(
+                label_selector=label_selector,
+            )
+            corev1.delete_collection_namespaced_persistent_volume_claim(
+                NAMESPACE,
+                label_selector=label_selector,
+            )
 
         # Annotate job
-        batchv1.patch_namespaced_job(
-            job.metadata.name,
-            job.metadata.namespace,
-            {
-                'metadata': {
-                    'annotations': {
-                        METADATA_PREFIX + 'cleaned-up': 'true',
+        with tracer.start_as_current_span('patch-job'):
+            batchv1.patch_namespaced_job(
+                job.metadata.name,
+                job.metadata.namespace,
+                {
+                    'metadata': {
+                        'annotations': {
+                            METADATA_PREFIX + 'cleaned-up': 'true',
+                        },
+                    },
+                    'spec': {
+                        'ttlSecondsAfterFinished': 3600,
                     },
                 },
-                'spec': {
-                    'ttlSecondsAfterFinished': 3600,
-                },
-            },
-        )
+            )
 
     return currently_backing_up
 
 
+@tracer.start_as_current_span('backup_rbd_fs')
 def backup_rbd_fs(api, ceph, vol, now):
     batchv1 = k8s_client.BatchV1Api(api)
 
@@ -324,18 +335,21 @@ def backup_rbd_fs(api, ceph, vol, now):
 
     # Clean old snapshots and cloned images for this image
     if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
-        check_call(['rbd', 'rm', rbd_fq_backup_img])
+        with tracer.start_as_current_span('delete-snapshot'):
+            check_call(['rbd', 'rm', rbd_fq_backup_img])
     if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
-        call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
-        check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+        with tracer.start_as_current_span('delete-snapshot'):
+            call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+            check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
 
-    # Make a snapshot
-    check_call(['rbd', 'snap', 'create', rbd_fq_snapshot])
+    with tracer.start_as_current_span('create-snapshot'):
+        # Make a snapshot
+        check_call(['rbd', 'snap', 'create', rbd_fq_snapshot])
 
-    # Turn it into an image, so the filesystem can be fixed on mount
-    # (if the image was in use when snapshotting, it will need repair)
-    check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
-    check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
+        # Turn it into an image, so the filesystem can be fixed on mount
+        # (if the image was in use when snapshotting, it will need repair)
+        check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
+        check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
 
     # Create a job to do the backup
     labels = {
@@ -347,74 +361,78 @@ def backup_rbd_fs(api, ceph, vol, now):
         METADATA_PREFIX + 'rbd-pool': vol['rbd_pool'],
         METADATA_PREFIX + 'rbd-name': vol['rbd_name'],
     }
-    job = batchv1.create_namespaced_job(NAMESPACE, k8s_client.V1Job(
-        metadata=k8s_client.V1ObjectMeta(
-            generate_name='backup-rbd-fs-%s-' % vol['namespace'],
-            labels=labels,
-            annotations={
-                METADATA_PREFIX + 'start-time': render_date(now),
-            },
-        ),
-        spec=k8s_client.V1JobSpec(
-            active_deadline_seconds=12 * 3600,
-            template=k8s_client.V1PodTemplateSpec(
-                metadata=k8s_client.V1ObjectMeta(
-                    labels=labels,
-                ),
-                spec=k8s_client.V1PodSpec(
-                    restart_policy='Never',
-                    containers=[
-                        k8s_client.V1Container(
-                            name='backup',
-                            image=BACKUP_IMAGE,
-                            image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
-                            args=[
-                                'restic',
-                                '--host', '$(HOST)',
-                                '--exclude', 'lost+found',
-                                'backup', '/data',
-                            ],
-                            env=format_env(
-                                RESTIC_REPOSITORY=('secret', RESTIC_SECRET_NAME, 'url'),
-                                HOST='rbd-fs-%s-nspvc-%s' % (
-                                    vol['namespace'],
-                                    vol['name'],
+    with tracer.start_as_current_span('create-job'):
+        job = batchv1.create_namespaced_job(NAMESPACE, k8s_client.V1Job(
+            metadata=k8s_client.V1ObjectMeta(
+                generate_name='backup-rbd-fs-%s-' % vol['namespace'],
+                labels=labels,
+                annotations={
+                    METADATA_PREFIX + 'start-time': render_date(now),
+                },
+            ),
+            spec=k8s_client.V1JobSpec(
+                active_deadline_seconds=12 * 3600,
+                template=k8s_client.V1PodTemplateSpec(
+                    metadata=k8s_client.V1ObjectMeta(
+                        labels=labels,
+                    ),
+                    spec=k8s_client.V1PodSpec(
+                        restart_policy='Never',
+                        containers=[
+                            k8s_client.V1Container(
+                                name='backup',
+                                image=BACKUP_IMAGE,
+                                image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
+                                args=[
+                                    'restic',
+                                    '--host', '$(HOST)',
+                                    '--exclude', 'lost+found',
+                                    'backup', '/data',
+                                ],
+                                env=format_env(
+                                    RESTIC_REPOSITORY=(
+                                        'secret', RESTIC_SECRET_NAME, 'url',
+                                    ),
+                                    HOST='rbd-fs-%s-nspvc-%s' % (
+                                        vol['namespace'],
+                                        vol['name'],
+                                    ),
+                                    RESTIC_PASSWORD=(
+                                        'secret', RESTIC_SECRET_NAME, 'password',
+                                    ),
                                 ),
-                                RESTIC_PASSWORD=(
-                                    'secret', RESTIC_SECRET_NAME, 'password',
+                                volume_mounts=[
+                                    k8s_client.V1VolumeMount(
+                                        mount_path='/data',
+                                        name='data',
+                                        read_only=True,
+                                    ),
+                                ],
+                            ),
+                        ],
+                        volumes=[
+                            k8s_client.V1Volume(
+                                name='data',
+                                rbd=k8s_client.V1RBDVolumeSource(
+                                    monitors=ceph['monitors'],
+                                    pool=vol['rbd_pool'],
+                                    image=rbd_backup_img,
+                                    fs_type=vol['csi']['fstype'],
+                                    secret_ref=k8s_client.V1SecretReference(
+                                        name=ceph['secret'],
+                                    ),
+                                    user=ceph['user'],
                                 ),
                             ),
-                            volume_mounts=[
-                                k8s_client.V1VolumeMount(
-                                    mount_path='/data',
-                                    name='data',
-                                    read_only=True,
-                                ),
-                            ],
-                        ),
-                    ],
-                    volumes=[
-                        k8s_client.V1Volume(
-                            name='data',
-                            rbd=k8s_client.V1RBDVolumeSource(
-                                monitors=ceph['monitors'],
-                                pool=vol['rbd_pool'],
-                                image=rbd_backup_img,
-                                fs_type=vol['csi']['fstype'],
-                                secret_ref=k8s_client.V1SecretReference(
-                                    name=ceph['secret'],
-                                ),
-                                user=ceph['user'],
-                            ),
-                        ),
-                    ],
+                        ],
+                    ),
                 ),
             ),
-        ),
-    ))
+        ))
     logger.info("Created job %s", job.metadata.name)
 
 
+@tracer.start_as_current_span('backup_rbd_block')
 def backup_rbd_block(api, ceph, vol, now):
     corev1 = k8s_client.CoreV1Api(api)
     batchv1 = k8s_client.BatchV1Api(api)
@@ -426,17 +444,20 @@ def backup_rbd_block(api, ceph, vol, now):
 
     # Clean old snapshots and cloned images for this image
     if call(['rbd', 'info', rbd_fq_backup_img]) == 0:
-        check_call(['rbd', 'rm', rbd_fq_backup_img])
+        with tracer.start_as_current_span('delete-snapshot'):
+            check_call(['rbd', 'rm', rbd_fq_backup_img])
     if call(['rbd', 'info', rbd_fq_snapshot]) == 0:
-        call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
-        check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
+        with tracer.start_as_current_span('delete-snapshot'):
+            call(['rbd', 'snap', 'unprotect', rbd_fq_snapshot])
+            check_call(['rbd', 'snap', 'rm', rbd_fq_snapshot])
 
-    # Make a snapshot
-    check_call(['rbd', 'snap', 'create', rbd_fq_snapshot])
+    with tracer.start_as_current_span('create-snapshot'):
+        # Make a snapshot
+        check_call(['rbd', 'snap', 'create', rbd_fq_snapshot])
 
-    # Turn it into an image
-    check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
-    check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
+        # Turn it into an image
+        check_call(['rbd', 'snap', 'protect', rbd_fq_snapshot])
+        check_call(['rbd', 'clone', rbd_fq_snapshot, rbd_fq_backup_img])
 
     labels = {
         METADATA_PREFIX + 'volume-type': 'rbd',
@@ -449,50 +470,52 @@ def backup_rbd_block(api, ceph, vol, now):
     }
 
     # Create a PersistentVolume
-    pv = corev1.create_persistent_volume(k8s_client.V1PersistentVolume(
-        metadata=k8s_client.V1ObjectMeta(
-            name='backup-rbd-block-%s' % vol['pv'],
-            labels=labels,
-        ),
-        spec=k8s_client.V1PersistentVolumeSpec(
-            access_modes=['ReadWriteMany'],
-            capacity={'storage': vol['size']},
-            persistent_volume_reclaim_policy='Delete',
-            storage_class_name='ceph-backup',
-            volume_mode='Block',
-            rbd=k8s_client.V1RBDVolumeSource(
-                monitors=ceph['monitors'],
-                pool=vol['rbd_pool'],
-                image=rbd_backup_img,
-                secret_ref=k8s_client.V1SecretReference(
-                    name=ceph['secret'],
-                    namespace=NAMESPACE,
-                ),
-                user=ceph['user'],
-            ),
-        ),
-    ))
-    logger.info("Created PersistentVolume %s", pv.metadata.name)
-
-    # Create a PersistentVolumeClaim
-    pvc = corev1.create_namespaced_persistent_volume_claim(
-        NAMESPACE,
-        k8s_client.V1PersistentVolumeClaim(
+    with tracer.start_as_current_span('create-pv'):
+        pv = corev1.create_persistent_volume(k8s_client.V1PersistentVolume(
             metadata=k8s_client.V1ObjectMeta(
                 name='backup-rbd-block-%s' % vol['pv'],
                 labels=labels,
             ),
-            spec=k8s_client.V1PersistentVolumeClaimSpec(
+            spec=k8s_client.V1PersistentVolumeSpec(
                 access_modes=['ReadWriteMany'],
-                resources=k8s_client.V1ResourceRequirements(
-                    requests={'storage': vol['size']},
-                ),
+                capacity={'storage': vol['size']},
+                persistent_volume_reclaim_policy='Delete',
                 storage_class_name='ceph-backup',
                 volume_mode='Block',
-                volume_name=pv.metadata.name,
+                rbd=k8s_client.V1RBDVolumeSource(
+                    monitors=ceph['monitors'],
+                    pool=vol['rbd_pool'],
+                    image=rbd_backup_img,
+                    secret_ref=k8s_client.V1SecretReference(
+                        name=ceph['secret'],
+                        namespace=NAMESPACE,
+                    ),
+                    user=ceph['user'],
+                ),
             ),
-        ),
-    )
+        ))
+    logger.info("Created PersistentVolume %s", pv.metadata.name)
+
+    # Create a PersistentVolumeClaim
+    with tracer.start_as_current_span('create-pvc'):
+        pvc = corev1.create_namespaced_persistent_volume_claim(
+            NAMESPACE,
+            k8s_client.V1PersistentVolumeClaim(
+                metadata=k8s_client.V1ObjectMeta(
+                    name='backup-rbd-block-%s' % vol['pv'],
+                    labels=labels,
+                ),
+                spec=k8s_client.V1PersistentVolumeClaimSpec(
+                    access_modes=['ReadWriteMany'],
+                    resources=k8s_client.V1ResourceRequirements(
+                        requests={'storage': vol['size']},
+                    ),
+                    storage_class_name='ceph-backup',
+                    volume_mode='Block',
+                    volume_name=pv.metadata.name,
+                ),
+            ),
+        )
     logger.info("Created PersistentVolumeClaim %s", pvc.metadata.name)
 
     # Create a job to do the backup
@@ -504,78 +527,81 @@ def backup_rbd_block(api, ceph, vol, now):
         + ' --host $(HOST)'
         + ' backup --stdin --stdin-filename disk.qcow2'
     )
-    job = batchv1.create_namespaced_job(NAMESPACE, k8s_client.V1Job(
-        metadata=k8s_client.V1ObjectMeta(
-            generate_name='backup-rbd-block-%s-' % vol['namespace'],
-            labels=labels,
-            annotations={
-                METADATA_PREFIX + 'start-time': render_date(now),
-            },
-        ),
-        spec=k8s_client.V1JobSpec(
-            active_deadline_seconds=12 * 3600,
-            template=k8s_client.V1PodTemplateSpec(
-                metadata=k8s_client.V1ObjectMeta(
-                    labels=labels,
-                ),
-                spec=k8s_client.V1PodSpec(
-                    restart_policy='Never',
-                    containers=[
-                        k8s_client.V1Container(
-                            name='backup',
-                            image=BACKUP_IMAGE,
-                            image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
-                            args=['sh', '-c', script],
-                            env=format_env(
-                                RESTIC_REPOSITORY=('secret', RESTIC_SECRET_NAME, 'url'),
-                                HOST='rbd-block-%s-nspvc-%s' % (
-                                    vol['namespace'],
-                                    vol['name'],
+    with tracer.start_as_current_span('create-job'):
+        job = batchv1.create_namespaced_job(NAMESPACE, k8s_client.V1Job(
+            metadata=k8s_client.V1ObjectMeta(
+                generate_name='backup-rbd-block-%s-' % vol['namespace'],
+                labels=labels,
+                annotations={
+                    METADATA_PREFIX + 'start-time': render_date(now),
+                },
+            ),
+            spec=k8s_client.V1JobSpec(
+                active_deadline_seconds=12 * 3600,
+                template=k8s_client.V1PodTemplateSpec(
+                    metadata=k8s_client.V1ObjectMeta(
+                        labels=labels,
+                    ),
+                    spec=k8s_client.V1PodSpec(
+                        restart_policy='Never',
+                        containers=[
+                            k8s_client.V1Container(
+                                name='backup',
+                                image=BACKUP_IMAGE,
+                                image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
+                                args=['sh', '-c', script],
+                                env=format_env(
+                                    RESTIC_REPOSITORY=(
+                                        'secret', RESTIC_SECRET_NAME, 'url',
+                                    ),
+                                    HOST='rbd-block-%s-nspvc-%s' % (
+                                        vol['namespace'],
+                                        vol['name'],
+                                    ),
+                                    CEPH_USER=ceph['user'],
+                                    CEPH_ARGS=(
+                                        '--conf /var/run/secrets/ceph/rbd.conf'
+                                        + ' --keyring'
+                                        + ' /var/run/secrets/ceph/rbd.conf'
+                                        + ' --user $(CEPH_USER)'
+                                    ),
+                                    RESTIC_PASSWORD=(
+                                        'secret', RESTIC_SECRET_NAME, 'password',
+                                    ),
                                 ),
-                                CEPH_USER=ceph['user'],
-                                CEPH_ARGS=(
-                                    '--conf /var/run/secrets/ceph/rbd.conf'
-                                    + ' --keyring'
-                                    + ' /var/run/secrets/ceph/rbd.conf'
-                                    + ' --user $(CEPH_USER)'
-                                ),
-                                RESTIC_PASSWORD=(
-                                    'secret', RESTIC_SECRET_NAME, 'password',
+                                volume_mounts=[
+                                    k8s_client.V1VolumeMount(
+                                        mount_path='/var/run/secrets/ceph',
+                                        name='ceph',
+                                        read_only=True,
+                                    ),
+                                ],
+                                volume_devices=[
+                                    k8s_client.V1VolumeDevice(
+                                        device_path='/disk',
+                                        name='disk',
+                                    ),
+                                ],
+                            ),
+                        ],
+                        volumes=[
+                            k8s_client.V1Volume(
+                                name='disk',
+                                persistent_volume_claim=(
+                                    k8s_client.V1PersistentVolumeClaimVolumeSource(
+                                        claim_name=pvc.metadata.name,
+                                    )
                                 ),
                             ),
-                            volume_mounts=[
-                                k8s_client.V1VolumeMount(
-                                    mount_path='/var/run/secrets/ceph',
-                                    name='ceph',
-                                    read_only=True,
+                            k8s_client.V1Volume(
+                                name='ceph',
+                                secret=k8s_client.V1SecretVolumeSource(
+                                    secret_name=CEPH_SECRET_NAME,
                                 ),
-                            ],
-                            volume_devices=[
-                                k8s_client.V1VolumeDevice(
-                                    device_path='/disk',
-                                    name='disk',
-                                ),
-                            ],
-                        ),
-                    ],
-                    volumes=[
-                        k8s_client.V1Volume(
-                            name='disk',
-                            persistent_volume_claim=(
-                                k8s_client.V1PersistentVolumeClaimVolumeSource(
-                                    claim_name=pvc.metadata.name,
-                                )
                             ),
-                        ),
-                        k8s_client.V1Volume(
-                            name='ceph',
-                            secret=k8s_client.V1SecretVolumeSource(
-                                secret_name=CEPH_SECRET_NAME,
-                            ),
-                        ),
-                    ],
+                        ],
+                    ),
                 ),
             ),
-        ),
-    ))
+        ))
     logger.info("Created job %s", job.metadata.name)
