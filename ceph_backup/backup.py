@@ -115,13 +115,21 @@ def main():
         'user': os.environ['CEPH_USER'],
     }
 
+    with tracer.start_as_current_span(
+        'ceph-backup',
+        attributes={'cleanup_only': args.cleanup_only},
+    ):
+        backup_main(now, ceph, args.cleanup_only)
+
+
+def backup_main(now, ceph, cleanup_only):
     api = k8s_client.ApiClient()
     corev1 = k8s_client.CoreV1Api(api)
 
     # Clean old jobs
     currently_backing_up = cleanup_jobs(api)
 
-    if args.cleanup_only:
+    if cleanup_only:
         return
 
     # Back up volumes
