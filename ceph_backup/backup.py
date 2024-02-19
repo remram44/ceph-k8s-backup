@@ -468,6 +468,9 @@ def backup_rbd_fs(api, ceph, vol, now):
                                 ),
                             ),
                         ],
+                        affinity=k8s_client.V1Affinity(
+                            pod_anti_affinity=anti_affinity(),
+                        ),
                     ),
                 ),
             ),
@@ -642,8 +645,32 @@ def backup_rbd_block(api, ceph, vol, now):
                                 ),
                             ),
                         ],
+                        affinity=k8s_client.V1Affinity(
+                            pod_anti_affinity=anti_affinity(),
+                        ),
                     ),
                 ),
             ),
         ))
     logger.info("Created job %s", job.metadata.name)
+
+
+def anti_affinity():
+    return k8s_client.V1PodAntiAffinity(
+        preferred_during_scheduling_ignored_during_execution=[
+            k8s_client.V1WeightedPodAffinityTerm(
+                weight=50,
+                pod_affinity_term=k8s_client.V1PodAffinityTerm(
+                    label_selector=k8s_client.V1LabelSelector(
+                        match_expressions=[
+                            k8s_client.V1LabelSelectorRequirement(
+                                key=METADATA_PREFIX + 'volume-type',
+                                operator='Exists',
+                            ),
+                        ],
+                    ),
+                    topology_key='kubernetes.io/hostname',
+                ),
+            ),
+        ],
+    )
