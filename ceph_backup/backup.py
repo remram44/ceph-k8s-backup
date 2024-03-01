@@ -281,11 +281,12 @@ def cleanup_job(api, job):
         return True
 
     logger.info(
-        "Cleaning up job=%s pv=%s, pvc=%s/%s",
+        "Cleaning up job=%s pv=%s, pvc=%s/%s, %s",
         meta.name,
         pv,
         pvc_namespace,
         pvc_name,
+        "successful" if successful else "unsuccessful",
     )
 
     if successful:
