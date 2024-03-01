@@ -428,6 +428,7 @@ def backup_rbd_fs(api, ceph, vol, now):
                                 image=BACKUP_IMAGE,
                                 image_pull_policy=BACKUP_IMAGE_PULL_POLICY,
                                 args=[
+                                    'stdbuf', '-o', 'L', '-e', 'L',
                                     'restic',
                                     '--host', '$(HOST)',
                                     '--exclude', 'lost+found',
@@ -569,7 +570,7 @@ def backup_rbd_block(api, ceph, vol, now):
         'rbd diff --whole-object --format=json ' + rbd_fq_image
         + ' > /tmp/layout.json'
         + ' && streaming-qcow2-writer /disk /tmp/layout.json'
-        + ' | restic'
+        + ' | stdbuf -o L -e L restic'
         + ' --host $(HOST)'
         + ' backup --stdin --stdin-filename disk.qcow2'
     )
