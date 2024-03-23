@@ -67,7 +67,6 @@ metrics:
     type: ClusterIP
     port: 8080
   resources: {}
-  enableAntiAffinity: true
 
 jaeger:
   enabled: false
