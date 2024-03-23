@@ -1,7 +1,7 @@
 FROM python:3.10 AS download
 
-ARG RESTIC_VERSION=0.14.0
-ARG RESTIC_DL_HASH=c8da7350dc334cd5eaf13b2c9d6e689d51e7377ba1784cc6d65977bd44ee1165
+ARG RESTIC_VERSION=0.16.4
+ARG RESTIC_DL_HASH=3d4d43c169a9e28ea76303b1e8b810f0dcede7478555fdaa8959971ad499e324
 RUN curl -Lo /tmp/restic_${RESTIC_VERSION}_linux_amd64.bz2 https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2 && \
     printf "${RESTIC_DL_HASH}  /tmp/restic_${RESTIC_VERSION}_linux_amd64.bz2\\n" | sha256sum -c && \
     bunzip2 < /tmp/restic_${RESTIC_VERSION}_linux_amd64.bz2 > /restic && \
