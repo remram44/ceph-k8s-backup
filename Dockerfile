@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM python:3.10 AS deps
+FROM --platform=$BUILDPLATFORM python:3.12 AS deps
 
 # Install Poetry
 RUN curl -sSL https://install.python-poetry.org | python3 - && /root/.local/bin/poetry config virtualenvs.create false
@@ -12,7 +12,7 @@ COPY pyproject.toml poetry.lock ./
 RUN /root/.local/bin/poetry export -o requirements.txt
 
 
-FROM python:3.10
+FROM python:3.12
 
 ENV TINI_VERSION v0.19.0
 ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
