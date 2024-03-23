@@ -24,7 +24,7 @@ RESTIC_SECRET_NAME = os.environ.get('RESTIC_SECRET_NAME', 'restic')
 BACKUP_IMAGE = os.environ.get(
     'BACKUP_IMAGE',
     'ghcr.io/remram44/ceph-k8s-backup/restic:'
-    + '0.3.0',
+    + '0.4.0',
 )
 BACKUP_IMAGE_PULL_POLICY = os.environ.get(
     'BACKUP_IMAGE_PULL_POLICY',
