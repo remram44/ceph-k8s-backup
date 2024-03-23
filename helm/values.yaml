@@ -67,10 +67,6 @@ metrics:
     type: ClusterIP
     port: 8080
   resources: {}
-  podDisruptionBudget:
-    enabled: false
-    minAvailable: 1
-    maxUnavailable: null
   enableAntiAffinity: true
 
 jaeger:
